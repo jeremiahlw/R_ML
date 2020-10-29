@@ -1,0 +1,318 @@
+---
+title: "Clustering Mall Customers"
+author: 'Jeremiah W'
+date: " `r format(Sys.Date(), '%B %d %Y') `"
+output:
+  html_document:
+    theme: paper
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(patchwork);library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+
+library(caret);library(tidymodels);library(h2o)
+
+library(NbClust);library(factoextra);library(ape)
+```
+
+# Intro
+Check out [this Kaggle webpage](https://www.kaggle.com/vjchoudhary7/customer-segmentation-tutorial-in-python)
+
+In one piped statement:
+  
+1. read in data
+2. convert char to factor vars
+3. rename all colnames lowercase
+4. order cols by name: alphabetically
+5. order cols by datatype: nominal, then numeric
+
+# Get Data
+```{r message=FALSE}
+a = read_csv('Mall_Customers.csv') %>%  #1
+  mutate(across(where(is.character),as.factor)) %>% #2
+  clean_names(.) %>% #3
+  select(sort(tidyselect::peek_vars())) %>% #4
+  select(where(is.factor), where(is.numeric)) %>%  #5
+  select(-customer_id)
+```
+
+#Split Data
+```{r}
+set.seed(321)
+split = a %>% initial_split()
+train = split %>% training()
+test = split %>% testing()
+```
+
+# EDA: nom vars
+
+### check head rows
+```{r}
+train %>% select(where(is.factor)) %>% head %>% DT::datatable()
+```
+### glimpse structure
+```{r}
+train %>% select(where(is.factor)) %>% glimpse
+```
+
+### check for missing values
+```{r}
+train %>% select(where(is.factor)) %>% miss_var_summary()
+```
+### distribution: counts of unique levels
+```{r}
+sapply(train %>% select(where(is.factor)), n_unique)
+```
+
+### reference: names of unique levels
+```{r}
+sapply(train %>% select(where(is.factor)), unique)
+```
+### binarize gender to numeric var
+```{r}
+train = train %>% mutate(gender = if_else(gender == 'Male', 1, 0))
+```
+
+
+### distribution: viz
+```{r cache=TRUE}
+ggplotly(
+train %>% count(gender = factor(gender)) %>%
+  mutate(percent = n/nrow(train)) %>%
+  ggplot(aes(percent, gender, fill = gender)) +
+  geom_col() +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = '', y = '', title ='Gender Percent Breakdown: 1 = Male, 0 = Female') +
+  theme(legend.position = 'none')
+)
+```
+
+# EDA: num vars
+
+### check head rows
+```{r}
+train %>% select(where(is.numeric)) %>% head %>% DT::datatable()
+```
+
+### glimpse structure
+```{r}
+train %>% select(where(is.numeric)) %>% glimpse
+```
+
+### check for missing values
+```{r  rows.print = 10}
+miss_var_summary(train %>% select(where(is.numeric)))
+
+```
+
+### distribution: viz
+```{r cache=TRUE}
+DataExplorer::plot_boxplot(train %>% select(where(is.numeric), gender), by = 'gender')
+```
+
+<h3 style="color: red; font-size:14px;">There appears to be outliers for male annual income</h2>
+
+### distribution: viz
+```{r cache=TRUE}
+DataExplorer::plot_histogram(train %>% select(where(is.numeric)))
+```
+
+### distribution: viz
+```{r cache=TRUE}
+DataExplorer::plot_density(train %>% select(where(is.numeric)))
+```
+
+### pairwise correlations: viz
+```{r cache=TRUE}
+GGally::ggcorr(train %>% select(where(is.numeric)), low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
+```
+
+# Preprocessing
+Reference: (package recipes)[https://recipes.tidymodels.org/reference/index.html]
+
+### normalize data
+```{r}
+### normalize data so certain features aren't unfairly weighted
+train.normalized = train %>% scale
+```
+## Create matrix
+```{r cache=TRUE, echo=FALSE}
+train.matrix = train.normalized %>% as.matrix()
+```
+
+# Determine Optimal Number of Clusters
+
+[Reference](https://rstudio-pubs-static.s3.amazonaws.com/455393_f20bacf1329a49dab40eb393308b33eb.html#choosing-optimal-number-of-clusters)
+
+### 1) silhouette analysis with kmeans and euclidean distancing
+```{r}
+factoextra::fviz_nbclust(
+  train.matrix,
+  diss = dist(train.matrix, method = "euclidean"),
+  FUNcluster=kmeans,
+  method="silhouette"
+  ) +
+  theme_classic()
+```
+
+### 2) silhouette analysis with kmeans and manhattan distancing
+```{r}
+factoextra::fviz_nbclust(
+  train.matrix,
+  diss = dist(train.matrix, method = "manhattan"),
+  FUNcluster=cluster::pam,
+  method="silhouette"
+  ) +
+  theme_classic()
+```
+
+### 3) silhouette analysis with pam and euclidean distancing
+```{r}
+factoextra::fviz_nbclust(
+  train.matrix,
+  diss = dist(train.matrix, method = "euclidean"),
+  FUNcluster=kmeans,
+  method="silhouette"
+  ) +
+  theme_classic()
+```
+
+### 4) silhouette analysis with pam and manhattan distancing
+```{r}
+factoextra::fviz_nbclust(
+  train.matrix,
+  diss = dist(train.matrix, method = "manhattan"),
+  FUNcluster=cluster::pam,
+  method="silhouette"
+  ) +
+  theme_classic()
+```
+
+# Clustering via Hierarchial Methods
+[Reference 1](http://www.sthda.com/english/wiki/beautiful-dendrogram-visualizations-in-r-5-must-known-methods-unsupervised-machine-learning)
+[Reference 2](https://sites.ualberta.ca/~lkgray/uploads/7/3/6/2/7362679/slides-clusteranalysis.pdf)
+
+```{r fig.width= 12, fig.height = 9}
+dist.train = dist(train, method = 'euclidean')
+
+#ward.D2, creates groups such that variance is minimized within clusters, dissimilarities are squared before clustering
+hclust.train = hclust(del.distanced, method = 'ward.D2') 
+#hclust.train = hclust(del.distanced, method = 'complete') 
+
+plot(hclust.train, hang = -1, cex = 0.8, main = NULL, xlab = NULL)
+
+h = 75
+
+#cutree(hclust.train, h = h) #height
+#cutree(hclust.train, k = 9) #clusters
+
+plot(hclust.train, hang = -1, cex = 0.8, main = NULL, xlab = NULL);abline(h = h, col = 'blue', lty = 2)
+
+#At a given height cutoff of x
+#Clusters below height x  have a [dist.method] [hclust.method] distance <= height cutoff
+
+hclust.colors = RColorBrewer::brewer.pal(9, 'Paired') #choose # of cols corresponding to optimal number of clusters
+
+hclust.clusters = cutree(hclust.train, 9)
+
+plot(as.phylo(hclust.train), type = 'fan', tip.color = hclust.colors[hclust.clusters],
+     label.offset = 2, cex = 1.0)
+
+plot(ape::as.phylo(hclust.train), type = 'unrooted', tip.color = hclust.colors[hclust.clusters],
+     label.offset = 2, cex = 1.0, no.margin = TRUE)
+
+```
+
+# Clustering via Centroid Based Methods
+
+## Kmeans
+```{r}
+km = eclust(
+  train.matrix,
+  FUNcluster="kmeans",
+  k=9,
+  hc_metric = "manhattan"
+  )
+```
+
+## PAM
+```{r}
+pam = eclust(
+  train.matrix,
+  FUNcluster="pam",
+  k=9,
+  hc_metric = "manhattan"
+  )
+```
+# Summarize Clustering Results
+
+### summary: data
+```{r message=FALSE}
+train = train %>% mutate(cluster = factor(pam$cluster, levels = 1:9))
+
+train %>%
+  mutate(gender = factor(if_else(gender == 1, 'Male', 'Female'))) %>%
+  group_by(cluster, gender) %>%
+  summarise(
+    mean.age = mean(age, na.rm = TRUE),
+    mean.income = mean(annual_income_k, na.rm = TRUE),
+    mean.spending.score = mean(spending_score_1_100, na.rm = TRUE),
+    count = n()
+  )
+```
+### summary: viz
+```{r warning=FALSE}
+ggplotly(train %>% mutate(gender = factor(if_else(gender == 1, 'Male', 'Female'))) %>% ggplot(aes(cluster, annual_income_k, fill = cluster)) + geom_boxplot() + facet_wrap(~gender) +
+           scale_y_continuous(breaks = seq(
+             min(train$annual_income_k),
+             max(train$annual_income_k), 10
+             )))
+
+ggplotly(train %>% mutate(gender = factor(if_else(gender == 1, 'Male', 'Female'))) %>% ggplot(aes(cluster, age, fill = cluster)) + geom_boxplot() + facet_wrap(~gender))
+
+ggplotly(train %>% mutate(gender = factor(if_else(gender == 1, 'Male', 'Female'))) %>% ggplot(aes(cluster, spending_score_1_100, fill = cluster)) + geom_boxplot() + facet_wrap(~gender))
+
+```
+
+```{r warning=FALSE}
+xvars = train %>% select(-cluster) %>% names %>% as.character()
+
+jpal = colorRampPalette(RColorBrewer::brewer.pal(8,'Dark2'))(25)
+
+train %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[2])), color = ~cluster, colors = jpal) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[2],' by cluster'), xaxis = list(title = xvars[2]))
+
+train %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[3])), color = ~cluster, colors = jpal) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[3],' by cluster'), xaxis = list(title = xvars[3]))
+
+train %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[4])), color = ~cluster, colors = jpal) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[4],' by cluster'), xaxis = list(title = xvars[4]))
+```
+
+```{r}
+
+```
+
+
+# Notes
+
+1. Try Other Popular Clustering Methods
+    + hierarchical clustering
+    + dbscan

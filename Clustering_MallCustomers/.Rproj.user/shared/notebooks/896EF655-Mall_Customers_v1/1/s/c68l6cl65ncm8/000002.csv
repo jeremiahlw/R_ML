@@ -1,0 +1,7 @@
+"0","```r
+train %>% select(where(is.factor)) %>% glimpse
+```"
+"1","Rows: 150
+Columns: 1
+$ gender <fct> Male, Male, Female, Female, Female, Female, Female, Male, Female, Male, Female, Female...
+"

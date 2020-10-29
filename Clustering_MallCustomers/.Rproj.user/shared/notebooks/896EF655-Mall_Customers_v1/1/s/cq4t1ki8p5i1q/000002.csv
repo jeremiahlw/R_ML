@@ -1,0 +1,11 @@
+"0","```r
+ggplotly(
+train %>% count(gender = factor(gender)) %>%
+  mutate(percent = n/nrow(train)) %>%
+  ggplot(aes(percent, gender, fill = gender)) +
+  geom_col() +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = '', y = '', title ='Gender Percent Breakdown: 1 = Male, 0 = Female') +
+  theme(legend.position = 'none')
+)
+```"

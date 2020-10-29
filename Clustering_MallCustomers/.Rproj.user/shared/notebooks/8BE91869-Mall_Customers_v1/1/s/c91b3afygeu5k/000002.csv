@@ -1,0 +1,257 @@
+"0","library(DataExplorer);library(data.table);"
+"2","data.table 1.13.0 using 4 threads (see ?getDTthreads).  Latest news: r-datatable.com
+"
+"0","library(extrafont);library(formattable);library(GGally);library(here);"
+"2","Registering fonts with R
+"
+"2","Loading required package: ggplot2
+"
+"2","here() starts at C:/Users/JWANG1-/OneDrive - Knex/Documents/DashAccount_R/R_ML/MallCustomerClustering
+"
+"0","library(janitor);library(lubridate);library(naniar);"
+"2","
+Attaching package: ‘janitor’
+
+"
+"2","The following objects are masked from ‘package:stats’:
+
+    chisq.test, fisher.test
+
+"
+"2","
+Attaching package: ‘lubridate’
+
+"
+"2","The following objects are masked from ‘package:data.table’:
+
+    hour, isoweek, mday, minute, month, quarter, second, wday, week, yday, year
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    date, intersect, setdiff, union
+
+"
+"0","library(patchwork);library(PerformanceAnalytics);"
+"2","
+Attaching package: ‘patchwork’
+
+"
+"2","The following object is masked from ‘package:formattable’:
+
+    area
+
+"
+"2","Loading required package: xts
+"
+"2","Loading required package: zoo
+"
+"2","
+Attaching package: ‘zoo’
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    as.Date, as.Date.numeric
+
+"
+"2","
+Attaching package: ‘xts’
+
+"
+"2","The following objects are masked from ‘package:data.table’:
+
+    first, last
+
+"
+"2","
+Attaching package: ‘PerformanceAnalytics’
+
+"
+"2","The following object is masked from ‘package:graphics’:
+
+    legend
+
+"
+"0","library(plotly);library(RColorBrewer);library(readxl);"
+"2","
+Attaching package: ‘plotly’
+
+"
+"2","The following object is masked from ‘package:ggplot2’:
+
+    last_plot
+
+"
+"2","The following object is masked from ‘package:formattable’:
+
+    style
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    filter
+
+"
+"2","The following object is masked from ‘package:graphics’:
+
+    layout
+
+"
+"0","library(skimr);library(tidyverse);library(scales)"
+"2","
+Attaching package: ‘skimr’
+
+"
+"2","The following object is masked from ‘package:naniar’:
+
+    n_complete
+
+"
+"2","Registered S3 methods overwritten by 'dbplyr':
+  method         from
+  print.tbl_lazy     
+  print.tbl_sql      
+"
+"2","[37m-- [1mAttaching packages[22m --------------------------------------- tidyverse 1.3.0 --[39m
+"
+"2","[37m[32mv[37m [34mtibble [37m 3.0.3     [32mv[37m [34mdplyr  [37m 1.0.1
+[32mv[37m [34mtidyr  [37m 1.1.2     [32mv[37m [34mstringr[37m 1.4.0
+[32mv[37m [34mreadr  [37m 1.4.0     [32mv[37m [34mforcats[37m 0.5.0
+[32mv[37m [34mpurrr  [37m 0.3.4     [39m
+"
+"2","[37m-- [1mConflicts[22m ------------------------------------------ tidyverse_conflicts() --
+[31mx[37m [34mlubridate[37m::[32mas.difftime()[37m masks [34mbase[37m::as.difftime()
+[31mx[37m [34mdplyr[37m::[32mbetween()[37m         masks [34mdata.table[37m::between()
+[31mx[37m [34mlubridate[37m::[32mdate()[37m        masks [34mbase[37m::date()
+[31mx[37m [34mdplyr[37m::[32mfilter()[37m          masks [34mplotly[37m::filter(), [34mstats[37m::filter()
+[31mx[37m [34mdplyr[37m::[32mfirst()[37m           masks [34mxts[37m::first(), [34mdata.table[37m::first()
+[31mx[37m [34mlubridate[37m::[32mhour()[37m        masks [34mdata.table[37m::hour()
+[31mx[37m [34mlubridate[37m::[32mintersect()[37m   masks [34mbase[37m::intersect()
+[31mx[37m [34mlubridate[37m::[32misoweek()[37m     masks [34mdata.table[37m::isoweek()
+[31mx[37m [34mdplyr[37m::[32mlag()[37m             masks [34mstats[37m::lag()
+[31mx[37m [34mdplyr[37m::[32mlast()[37m            masks [34mxts[37m::last(), [34mdata.table[37m::last()
+[31mx[37m [34mlubridate[37m::[32mmday()[37m        masks [34mdata.table[37m::mday()
+[31mx[37m [34mlubridate[37m::[32mminute()[37m      masks [34mdata.table[37m::minute()
+[31mx[37m [34mlubridate[37m::[32mmonth()[37m       masks [34mdata.table[37m::month()
+[31mx[37m [34mlubridate[37m::[32mquarter()[37m     masks [34mdata.table[37m::quarter()
+[31mx[37m [34mlubridate[37m::[32msecond()[37m      masks [34mdata.table[37m::second()
+[31mx[37m [34mlubridate[37m::[32msetdiff()[37m     masks [34mbase[37m::setdiff()
+[31mx[37m [34mpurrr[37m::[32mtranspose()[37m       masks [34mdata.table[37m::transpose()
+[31mx[37m [34mlubridate[37m::[32munion()[37m       masks [34mbase[37m::union()
+[31mx[37m [34mlubridate[37m::[32mwday()[37m        masks [34mdata.table[37m::wday()
+[31mx[37m [34mlubridate[37m::[32mweek()[37m        masks [34mdata.table[37m::week()
+[31mx[37m [34mlubridate[37m::[32myday()[37m        masks [34mdata.table[37m::yday()
+[31mx[37m [34mlubridate[37m::[32myear()[37m        masks [34mdata.table[37m::year()[39m
+"
+"2","
+Attaching package: ‘scales’
+
+"
+"2","The following object is masked from ‘package:purrr’:
+
+    discard
+
+"
+"2","The following object is masked from ‘package:readr’:
+
+    col_factor
+
+"
+"2","The following objects are masked from ‘package:formattable’:
+
+    comma, percent, scientific
+
+"
+"0","library(caret);library(tidymodels);library(h2o)"
+"2","Loading required package: lattice
+"
+"2","
+Attaching package: ‘caret’
+
+"
+"2","The following object is masked from ‘package:purrr’:
+
+    lift
+
+"
+"2","[37m-- [1mAttaching packages[22m -------------------------------------- tidymodels 0.1.1 --[39m
+"
+"2","[37m[32mv[37m [34mbroom    [37m 0.7.1      [32mv[37m [34mrecipes  [37m 0.1.13
+[32mv[37m [34mdials    [37m 0.0.9      [32mv[37m [34mrsample  [37m 0.0.8 
+[32mv[37m [34minfer    [37m 0.5.3      [32mv[37m [34mtune     [37m 0.1.1 
+[32mv[37m [34mmodeldata[37m 0.0.2      [32mv[37m [34mworkflows[37m 0.2.1 
+[32mv[37m [34mparsnip  [37m 0.1.3      [32mv[37m [34myardstick[37m 0.0.7 [39m
+"
+"2","[37m-- [1mConflicts[22m ----------------------------------------- tidymodels_conflicts() --
+[31mx[37m [34mdplyr[37m::[32mbetween()[37m         masks [34mdata.table[37m::between()
+[31mx[37m [34mscales[37m::[32mdiscard()[37m        masks [34mpurrr[37m::discard()
+[31mx[37m [34mdplyr[37m::[32mfilter()[37m          masks [34mplotly[37m::filter(), [34mstats[37m::filter()
+[31mx[37m [34mdplyr[37m::[32mfirst()[37m           masks [34mxts[37m::first(), [34mdata.table[37m::first()
+[31mx[37m [34mrecipes[37m::[32mfixed()[37m         masks [34mstringr[37m::fixed()
+[31mx[37m [34mdplyr[37m::[32mlag()[37m             masks [34mstats[37m::lag()
+[31mx[37m [34mdplyr[37m::[32mlast()[37m            masks [34mxts[37m::last(), [34mdata.table[37m::last()
+[31mx[37m [34mcaret[37m::[32mlift()[37m            masks [34mpurrr[37m::lift()
+[31mx[37m [34myardstick[37m::[32mprecision()[37m   masks [34mcaret[37m::precision()
+[31mx[37m [34myardstick[37m::[32mrecall()[37m      masks [34mcaret[37m::recall()
+[31mx[37m [34myardstick[37m::[32msensitivity()[37m masks [34mcaret[37m::sensitivity()
+[31mx[37m [34myardstick[37m::[32mspec()[37m        masks [34mreadr[37m::spec()
+[31mx[37m [34myardstick[37m::[32mspecificity()[37m masks [34mcaret[37m::specificity()
+[31mx[37m [34mrecipes[37m::[32mstep()[37m          masks [34mstats[37m::step()
+[31mx[37m [34mpurrr[37m::[32mtranspose()[37m       masks [34mdata.table[37m::transpose()[39m
+"
+"2","
+----------------------------------------------------------------------
+
+Your next step is to start H2O:
+    > h2o.init()
+
+For H2O package documentation, ask for help:
+    > ??h2o
+
+After starting H2O, you can use the Web UI at http://localhost:54321
+For more information visit https://docs.h2o.ai
+
+----------------------------------------------------------------------
+
+"
+"2","
+Attaching package: ‘h2o’
+
+"
+"2","The following objects are masked from ‘package:lubridate’:
+
+    day, hour, month, week, year
+
+"
+"2","The following objects are masked from ‘package:data.table’:
+
+    hour, month, week, year
+
+"
+"2","The following objects are masked from ‘package:stats’:
+
+    cor, sd, var
+
+"
+"2","The following objects are masked from ‘package:base’:
+
+    %*%, %in%, &&, ||, apply, as.factor, as.numeric, colnames, colnames<-, ifelse, is.character, is.factor, is.numeric, log, log10, log1p, log2, round, signif,
+    trunc
+
+"
+"0","library(NbClust);library(factoextra);library(ape)"
+"2","package ‘NbClust’ was built under R version 4.0.3"
+"2","package ‘factoextra’ was built under R version 4.0.3"
+"2","Welcome! Want to learn more? See two factoextra-related books at https://goo.gl/ve3WBa
+"
+"2","package ‘ape’ was built under R version 4.0.3"
+"2","
+Attaching package: ‘ape’
+
+"
+"2","The following object is masked from ‘package:rsample’:
+
+    complement
+
+"
