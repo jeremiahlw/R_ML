@@ -1,0 +1,15 @@
+---
+title: "Credit Card Customer Clustering"
+author: 'Jeremiah W'
+date: "October 29, 2020"
+output:
+  html_document:
+    theme: paper
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
