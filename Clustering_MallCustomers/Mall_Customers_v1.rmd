@@ -21,7 +21,7 @@ options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, search
 
 ```{r include=FALSE}
 library(DataExplorer);library(data.table);
-library(extrafont);library(formattable);library(GGally);library(here);
+library(extrafont);library(formattable);library(GGally);library(here=);
 library(janitor);library(lubridate);library(naniar);
 library(patchwork);library(PerformanceAnalytics);
 library(plotly);library(RColorBrewer);library(readxl);
@@ -177,7 +177,7 @@ factoextra::fviz_nbclust(
 factoextra::fviz_nbclust(
   train.matrix,
   diss = dist(train.matrix, method = "manhattan"),
-  FUNcluster=cluster::pam,
+  FUNcluster=kmeans,
   method="silhouette"
   ) +
   theme_classic()
@@ -188,7 +188,7 @@ factoextra::fviz_nbclust(
 factoextra::fviz_nbclust(
   train.matrix,
   diss = dist(train.matrix, method = "euclidean"),
-  FUNcluster=kmeans,
+  FUNcluster=cluster::pam,
   method="silhouette"
   ) +
   theme_classic()
@@ -213,7 +213,7 @@ factoextra::fviz_nbclust(
 dist.train = dist(train, method = 'euclidean')
 
 #ward.D2, creates groups such that variance is minimized within clusters, dissimilarities are squared before clustering
-hclust.train = hclust(del.distanced, method = 'ward.D2') 
+hclust.train = hclust(dist.train, method = 'ward.D2') 
 #hclust.train = hclust(del.distanced, method = 'complete') 
 
 plot(hclust.train, hang = -1, cex = 0.8, main = NULL, xlab = NULL)

@@ -4,7 +4,7 @@ author: 'Jeremiah W'
 date: "October 29, 2020"
 output:
   html_document:
-    theme: paper
+    theme: simplex
     code_folding: hide
     toc: yes
     toc_float:
@@ -13,3 +13,361 @@ output:
     toc_depth: 2
     df_print: paged
 ---
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr)
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(patchwork);library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+
+library(NbClust);library(factoextra);library(ape);library(dbscan)
+```
+
+# Introduction
+[Please read this Kaggle](https://www.kaggle.com/arjunbhasin2013/ccdata)
+
+# Data Dictionary
+```{r eval=FALSE}
+# CUSTID : Identification of Credit Card holder (Categorical)
+# 
+# BALANCE : Balance amount left in their account to make purchases (
+# 
+# BALANCEFREQUENCY : How frequently the Balance is updated, score between 0 and 1 (1 = frequently updated, 0 = not frequently updated)
+# 
+# PURCHASES : Amount of purchases made from account
+# 
+# ONEOFFPURCHASES : Maximum purchase amount done in one-go
+# 
+# INSTALLMENTSPURCHASES : Amount of purchase done in installment
+# 
+# CASHADVANCE : Cash in advance given by the user
+# 
+# PURCHASESFREQUENCY : How frequently the Purchases are being made, score between 0 and 1 (1 = frequently purchased, 0 = not frequently purchased)
+# 
+# ONEOFFPURCHASESFREQUENCY : How frequently Purchases are happening in one-go (1 = frequently purchased, 0 = not frequently purchased)
+# 
+# PURCHASESINSTALLMENTSFREQUENCY : How frequently purchases in installments are being done (1 = frequently done, 0 = not frequently done)
+# 
+# CASHADVANCEFREQUENCY : How frequently the cash in advance being paid
+# 
+# CASHADVANCETRX : Number of Transactions made with "Cash in Advanced"
+# 
+# PURCHASESTRX : Numbe of purchase transactions made
+# 
+# CREDITLIMIT : Limit of Credit Card for user
+# 
+# PAYMENTS : Amount of Payment done by user
+# 
+# MINIMUM_PAYMENTS : Minimum amount of payments made by user
+# 
+# PRCFULLPAYMENT : Percent of full payment paid by user
+# 
+# TENURE : Tenure of credit card service for user
+```
+
+
+In one piped statement:
+  
+1. read in data
+2. rename all colnames lowercase
+3. convert char to factor vars
+4. order cols by name: alphabetically
+5. order cols by datatype: nominal, then numeric
+
+# Get and Split Data
+```{r message=FALSE}
+a = read_csv('CreditCard_Customers.csv') %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character),factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(where(is.factor),where(is.numeric))
+```
+### quick skim
+```{r}
+a %>% head %>% DT::datatable()
+a %>% glimpse
+```
+<h4 style="color: blue; font-size:12px;">There appears to be outliers for male annual income</h4>
+<h4 style="color: blue; font-size:12px;">XXX</h4>
+
+### remove unecessary col
+```{r}
+a = a %>% select(-cust_id)
+```
+
+# EDA: num vars
+
+### check missing values
+```{r}
+miss_var_summary(a)
+```
+
+
+### distribution: viz
+```{r fig.width=12, fig.height=9}
+DataExplorer::plot_histogram(a, nrow = 3, ncol = 3)
+```
+
+[dlookr vignette](https://github.com/choonghyunryu/dlookr)
+
+### outliers: viz
+```{r}
+#find names of cols with outliers_ratio > 10%
+(a %>% diagnose_outlier() %>% filter(outliers_ratio > 10))
+outlier.cols = a %>% diagnose_outlier() %>% filter(outliers_ratio > 10) %>% select(variables) %>% pull()
+
+a %>% plot_outlier(all_of(outlier.cols))
+```
+
+### normality: viz
+```{r}
+a %>% plot_normality(balance, payments, tenure)
+```
+
+
+### correlations: viz
+```{r fig.width=12, fig.height=9}
+dlookr::plot_correlate(a)
+```
+
+
+### pairwise correlations: viz
+```{r fig.width=12, fig.height=9}
+a %>% GGally::ggcorr(low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
+```
+
+# Preprocessing
+### remove missing rows
+```{r}
+a = a %>% na.omit()
+```
+
+### normalize data
+```{r}
+a.scale = a %>% scale
+```
+
+### create matrix
+```{r}
+a.matrix = a.scale %>% as.matrix
+```
+
+# Determine Optimal Number of Clusters
+
+[Reference](https://rstudio-pubs-static.s3.amazonaws.com/455393_f20bacf1329a49dab40eb393308b33eb.html#choosing-optimal-number-of-clusters)
+
+### 1) silhouette analysis with kmeans and euclidean distancing
+```{r cache=TRUE}
+factoextra::fviz_nbclust(
+  a.matrix,
+  diss = dist(a.matrix, method = "euclidean"),
+  FUNcluster=kmeans,
+  method="silhouette"
+  ) +
+  theme_classic()
+```
+### 2) silhouette analysis with pam and euclidean distancing
+```{r cache=TRUE, eval=FALSE}
+#observation: cluster::pam is much more computationally expensive than kmeans, takes much, much longer to run
+factoextra::fviz_nbclust(
+  a.matrix,
+  diss = dist(a.matrix, method = "euclidean"),
+  FUNcluster=cluster::pam,
+  method="silhouette"
+  ) +
+  theme_classic()
+```
+<h4 style="color: blue; font-size:12px;">Makes NO business sense to have only 2 clusters; will go with kmeans # optimal clusters instead of pam's</h4>
+
+# Clustering via Hierarchial Methods
+[Reference 1](http://www.sthda.com/english/wiki/beautiful-dendrogram-visualizations-in-r-5-must-known-methods-unsupervised-machine-learning)
+[Reference 2](https://sites.ualberta.ca/~lkgray/uploads/7/3/6/2/7362679/slides-clusteranalysis.pdf)
+
+```{r fig.width= 12, fig.height = 9, cache=TRUE}
+dist.a = dist(a, method = 'euclidean') #Distance Matrix Computation
+
+#ward.D2, creates groups such that variance is minimized within clusters, dissimilarities are squared before clustering
+hclust.a = hclust(dist.a, method = 'ward.D2') #agglomeration method, how to group points
+#hclust.a = hclust(del.distanced, method = 'complete') 
+
+plot(hclust.a, hang = -1, cex = 0.8, main = NULL, xlab = NULL)
+
+plot(hclust.a, hang = -1, cex = 0.8, main = NULL, xlab = NULL);abline(h = 180000, col = 'blue', lty = 2)
+
+#At a given height cutoff of x
+#Clusters below height x  have a [dist.method] [hclust.method] distance <= height cutoff
+
+hclust.colors = RColorBrewer::brewer.pal(6, 'Paired') #choose # of cols corresponding an optimal number of clusters
+
+hclust.clusters = cutree(hclust.a, 6)
+
+plot(as.phylo(hclust.a), type = 'fan', tip.color = hclust.colors[hclust.clusters],
+     label.offset = 2, cex = 1.0)
+
+plot(ape::as.phylo(hclust.a), type = 'unrooted', tip.color = hclust.colors[hclust.clusters],
+     label.offset = 2, cex = 1.0, no.margin = TRUE)
+
+```
+
+<h4 style="color: blue; font-size:12px;">Clusters below a height cutoff of 180000  have a kmeans euclidean distance <= height cutoff</h4>
+<h4 style="color: blue; font-size:12px;">Looking at the dendogram, 9 clusters might be 'over-clustering'; will stick with 6 clusters</h4>
+
+# Clustering via Centroid Based Methods
+
+## PAM
+```{r fig.width=12, fig.height=9, cache=TRUE, eval=FALSE}
+pam = eclust(
+  a.matrix,
+  FUNcluster="pam", #clustering function
+  k=6,
+  hc_metric = "euclidean", #metric to be used for calculating (dis)similarities between observations
+  hc_method = "ward.D2", #agglomeration method to be used
+  )
+```
+
+## Kmeans
+```{r fig.width=12, fig.height=9, cache=TRUE}
+km = eclust(
+  a.matrix,
+  FUNcluster="kmeans",
+  k=6,
+  hc_metric = "euclidean",
+  hc_method = "ward.D2",
+  )
+```
+
+# Clustering via DBSCAN
+```{r}
+#https://cs.wmich.edu/alfuqaha/summer14/cs6530/lectures/ClusteringAnalysis.pdf
+library(dbscan)
+kNNdistplot(a.matrix, k=10);abline(h=3.5, lty=2, col='blue')
+(dbs = dbscan::dbscan(a.matrix, eps = 3.5, minPts = 10))
+
+```
+
+
+# Summarize Clustering Results
+
+### summary: data
+```{r message=FALSE}
+a = a %>% mutate(cluster = factor(km$cluster, levels = 1:6))
+
+a %>%
+  group_by(cluster) %>%
+  summarise(
+      mean.balance = mean(balance, na.rm = TRUE),
+      mean.balance_frequency = mean(balance_frequency, na.rm = TRUE),
+      mean.cash_advance = mean(cash_advance, na.rm = TRUE),
+      mean.cash_advance_frequency = mean(cash_advance_frequency, na.rm = TRUE),
+      mean.cash_advance_trx = mean(cash_advance_trx, na.rm = TRUE),
+      mean.credit_limit = mean(credit_limit, na.rm = TRUE),
+      mean.installments_purchases = mean(installments_purchases, na.rm = TRUE),
+      mean.minimum_payments = mean(minimum_payments, na.rm = TRUE),
+      mean.oneoff_purchases = mean(oneoff_purchases, na.rm = TRUE),
+      mean.oneoff_purchases_frequency = mean(oneoff_purchases_frequency, na.rm = TRUE),
+      mean.payments = mean(payments, na.rm = TRUE),
+      mean.prc_full_payment = mean(prc_full_payment, na.rm = TRUE),
+      mean.purchases = mean(purchases, na.rm = TRUE),
+      mean.purchases_frequency = mean(purchases_frequency, na.rm = TRUE),
+      mean.purchases_installments_frequency = mean(purchases_installments_frequency, na.rm = TRUE),
+      mean.purchases_trx = mean(purchases_trx, na.rm = TRUE),
+      mean.tenure = mean(tenure, na.rm = TRUE),
+      count = n()
+  )
+```
+
+### summary: viz
+```{r fig.width=12, fig.height=9}
+library(ggthemes)
+DataExplorer::plot_boxplot(a, by = 'cluster', nrow = 3, ncol = 1)
+```
+
+
+### summary: viz
+```{r warning=FALSE, fig.width=12, fig.height=9, cache=TRUE}
+
+xvars = a %>% select(-cluster) %>% names %>% as.character()
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[2])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[2],' by cluster'), xaxis = list(title = xvars[2]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[3])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[3],' by cluster'), xaxis = list(title = xvars[3]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[4])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[4],' by cluster'), xaxis = list(title = xvars[4]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[5])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[5],' by cluster'), xaxis = list(title = xvars[5]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[6])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[6],' by cluster'), xaxis = list(title = xvars[6]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[7])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[7],' by cluster'), xaxis = list(title = xvars[7]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[8])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[8],' by cluster'), xaxis = list(title = xvars[8]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[9])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[9],' by cluster'), xaxis = list(title = xvars[9]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[10])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[10],' by cluster'), xaxis = list(title = xvars[10]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[11])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[11],' by cluster'), xaxis = list(title = xvars[11]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[12])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[12],' by cluster'), xaxis = list(title = xvars[12]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[13])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[13],' by cluster'), xaxis = list(title = xvars[13]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[14])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[14],' by cluster'), xaxis = list(title = xvars[14]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[15])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[15],' by cluster'), xaxis = list(title = xvars[15]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[16])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[16],' by cluster'), xaxis = list(title = xvars[16]))
+
+a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[17])), color = ~cluster, colors = hclust.colors) %>% add_boxplot() %>% hide_legend() %>% layout(
+  title = paste0(xvars[17],' by cluster'), xaxis = list(title = xvars[17]))
+
+```
+
+```{r warning=FALSE}
+
+```
+
+
+
+```{r}
+```
+
+
+
+
+```{r}
+```
+
+
+
+
+```{r}
+```
+
+# Notes
+
+1. There are a lot of outliers, so try a clustering method that does a better job of handling outliers, e.g. dbscan
+2. Add elbow method for determining optimal number of clusters
+3. Try daisy, gower
