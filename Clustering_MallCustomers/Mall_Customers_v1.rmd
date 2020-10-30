@@ -21,7 +21,7 @@ options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, search
 
 ```{r include=FALSE}
 library(DataExplorer);library(data.table);
-library(extrafont);library(formattable);library(GGally);library(here=);
+library(extrafont);library(formattable);library(GGally);library(here)
 library(janitor);library(lubridate);library(naniar);
 library(patchwork);library(PerformanceAnalytics);
 library(plotly);library(RColorBrewer);library(readxl);
@@ -92,7 +92,7 @@ train = train %>% mutate(gender = if_else(gender == 'Male', 1, 0))
 
 
 ### distribution: viz
-```{r cache=TRUE}
+```{r}
 ggplotly(
 train %>% count(gender = factor(gender)) %>%
   mutate(percent = n/nrow(train)) %>%
@@ -126,8 +126,6 @@ miss_var_summary(train %>% select(where(is.numeric)))
 ```{r cache=TRUE}
 DataExplorer::plot_boxplot(train %>% select(where(is.numeric), gender), by = 'gender')
 ```
-
-<h3 style="color: red; font-size:14px;">There appears to be outliers for male annual income</h2>
 
 ### distribution: viz
 ```{r cache=TRUE}
@@ -261,6 +259,7 @@ pam = eclust(
   hc_metric = "manhattan"
   )
 ```
+
 # Summarize Clustering Results
 
 ### summary: data
@@ -310,9 +309,3 @@ train %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[4])), color = ~cluster, 
 
 ```
 
-
-# Notes
-
-1. Try Other Popular Clustering Methods
-    + hierarchical clustering
-    + dbscan

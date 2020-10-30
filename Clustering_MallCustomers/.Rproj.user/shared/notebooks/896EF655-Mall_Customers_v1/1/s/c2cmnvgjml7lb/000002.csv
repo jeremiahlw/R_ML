@@ -1,6 +1,0 @@
-"0","```r
-sapply(train %>% select(where(is.factor)), n_unique)
-```"
-"1","gender 
-     2 
-"

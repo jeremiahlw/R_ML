@@ -1,3 +1,0 @@
-"0","```r
-miss_var_summary(train %>% select(where(is.numeric)))
-```"

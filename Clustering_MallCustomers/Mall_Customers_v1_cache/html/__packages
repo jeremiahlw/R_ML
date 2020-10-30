@@ -40,6 +40,6 @@ tune
 workflows
 yardstick
 h2o
-kmed
 NbClust
 factoextra
+ape

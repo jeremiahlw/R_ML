@@ -1,3 +1,0 @@
-"0","```r
-train %>% select(where(is.numeric)) %>% head %>% DT::datatable()
-```"

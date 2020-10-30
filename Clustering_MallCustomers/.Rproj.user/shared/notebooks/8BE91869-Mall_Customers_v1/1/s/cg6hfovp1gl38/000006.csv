@@ -1,6 +1,0 @@
-"0","a = read_csv('Mall_Customers.csv') %>%  #1"
-"0","  mutate(across(where(is.character),as.factor)) %>% #2"
-"0","  clean_names(.) %>% #3"
-"0","  select(sort(tidyselect::peek_vars())) %>% #4"
-"0","  select(where(is.factor), where(is.numeric)) %>%  #5"
-"0","  select(-customer_id)"

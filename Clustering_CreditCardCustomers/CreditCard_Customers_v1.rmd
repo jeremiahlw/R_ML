@@ -163,7 +163,7 @@ a.matrix = a.scale %>% as.matrix
 
 [Reference](https://rstudio-pubs-static.s3.amazonaws.com/455393_f20bacf1329a49dab40eb393308b33eb.html#choosing-optimal-number-of-clusters)
 
-### 1) silhouette analysis with kmeans and euclidean distancing
+### silhouette analysis with kmeans and euclidean distancing
 ```{r cache=TRUE}
 factoextra::fviz_nbclust(
   a.matrix,
@@ -173,18 +173,8 @@ factoextra::fviz_nbclust(
   ) +
   theme_classic()
 ```
-### 2) silhouette analysis with pam and euclidean distancing
-```{r cache=TRUE, eval=FALSE}
-#observation: cluster::pam is much more computationally expensive than kmeans, takes much, much longer to run
-factoextra::fviz_nbclust(
-  a.matrix,
-  diss = dist(a.matrix, method = "euclidean"),
-  FUNcluster=cluster::pam,
-  method="silhouette"
-  ) +
-  theme_classic()
-```
-<h4 style="color: blue; font-size:12px;">Makes NO business sense to have only 2 clusters; will go with kmeans # optimal clusters instead of pam's</h4>
+
+<h4 style="color: blue; font-size:12px;">While 2 is what is suggested, it likely makes little business sense to only have 2 clusters; will go with 3, 4, or 5</h4>
 
 # Clustering via Hierarchial Methods
 [Reference 1](http://www.sthda.com/english/wiki/beautiful-dendrogram-visualizations-in-r-5-must-known-methods-unsupervised-machine-learning)
@@ -199,14 +189,14 @@ hclust.a = hclust(dist.a, method = 'ward.D2') #agglomeration method, how to grou
 
 plot(hclust.a, hang = -1, cex = 0.8, main = NULL, xlab = NULL)
 
-plot(hclust.a, hang = -1, cex = 0.8, main = NULL, xlab = NULL);abline(h = 180000, col = 'blue', lty = 2)
+plot(hclust.a, hang = -1, cex = 0.8, main = NULL, xlab = NULL);abline(h = 220000, col = 'blue', lty = 2) #4 clusters at this height
 
 #At a given height cutoff of x
 #Clusters below height x  have a [dist.method] [hclust.method] distance <= height cutoff
 
-hclust.colors = RColorBrewer::brewer.pal(6, 'Paired') #choose # of cols corresponding an optimal number of clusters
+hclust.colors = RColorBrewer::brewer.pal(4, 'Paired') #choose # of cols corresponding an optimal number of clusters
 
-hclust.clusters = cutree(hclust.a, 6)
+hclust.clusters = cutree(hclust.a, 4)
 
 plot(as.phylo(hclust.a), type = 'fan', tip.color = hclust.colors[hclust.clusters],
      label.offset = 2, cex = 1.0)
@@ -216,48 +206,89 @@ plot(ape::as.phylo(hclust.a), type = 'unrooted', tip.color = hclust.colors[hclus
 
 ```
 
-<h4 style="color: blue; font-size:12px;">Clusters below a height cutoff of 180000  have a kmeans euclidean distance <= height cutoff</h4>
-<h4 style="color: blue; font-size:12px;">Looking at the dendogram, 9 clusters might be 'over-clustering'; will stick with 6 clusters</h4>
+<h4 style="color: blue; font-size:12px;">Clusters below a height cutoff of 210000  have a kmeans euclidean distance <= height cutoff</h4>
+<h4 style="color: blue; font-size:12px;">Looking at the dendogram, 9 clusters might be 'over-clustering'; will stick with 5 clusters</h4>
 
-# Clustering via Centroid Based Methods
-
-## PAM
-```{r fig.width=12, fig.height=9, cache=TRUE, eval=FALSE}
-pam = eclust(
-  a.matrix,
-  FUNcluster="pam", #clustering function
-  k=6,
-  hc_metric = "euclidean", #metric to be used for calculating (dis)similarities between observations
-  hc_method = "ward.D2", #agglomeration method to be used
-  )
-```
+# Clustering via Centroid Based Methods: Kmeans
 
 ## Kmeans
 ```{r fig.width=12, fig.height=9, cache=TRUE}
 km = eclust(
   a.matrix,
   FUNcluster="kmeans",
-  k=6,
+  k=4,
   hc_metric = "euclidean",
   hc_method = "ward.D2",
   )
 ```
 
-# Clustering via DBSCAN
-```{r}
-#https://cs.wmich.edu/alfuqaha/summer14/cs6530/lectures/ClusteringAnalysis.pdf
-library(dbscan)
-kNNdistplot(a.matrix, k=10);abline(h=3.5, lty=2, col='blue')
-(dbs = dbscan::dbscan(a.matrix, eps = 3.5, minPts = 10))
+# Clustering via Centroid Based Methods: PAM
 
+### Create Distance Matrix
+```{r}
+#gower distances allow you to work with both nominal and numeric data
+gower_dist <- cluster::daisy(a.scale, metric = "gower")
+gower_mat <- as.matrix(gower_dist)
 ```
 
+
+### Implementing K Medoids Clustering
+```{r cache=TRUE}
+#Using PAM (partitioning around medoids) clustering, calculate silhouette width for k-medoids 
+max.clusters = 10
+
+sil_width <- c(NA)
+  
+  for(i in 2:max.clusters){
+    
+    pam_fit <- cluster::pam(gower_dist,
+                            diss = TRUE,
+                            k = i)
+    
+    sil_width[i] <- pam_fit$silinfo$avg.width
+    
+  }
+
+gc() #clear memory
+```
+
+### Plot results
+```{r fig.width=12, fig.height=9}
+
+plot(1:10, sil_width,
+       xlab = "Number of medoids/clusters",
+       ylab = "Silhouette Width")
+lines(1:10, sil_width)
+```
+
+
+### Finalize PAM model with optimal number of medoids
+```{r finalfit}
+pam_fit <- cluster::pam(gower_dist,
+                          diss = TRUE,
+                          k = 4)
+```
+
+
+### Visualize the Clusters
+```{r fig.width=16, fig.height=12}
+tsne_obj <- Rtsne::Rtsne(gower_dist, is_distance = TRUE)
+
+tsne_data <- tsne_obj$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_fit$clustering))
+
+(graph.clusters = ggplot(aes(x = X, y = Y), data = tsne_data) +
+  geom_point(aes(color = cluster)))
+
+```
 
 # Summarize Clustering Results
 
 ### summary: data
 ```{r message=FALSE}
-a = a %>% mutate(cluster = factor(km$cluster, levels = 1:6))
+a = a %>% mutate(cluster = factor(km$cluster, levels = 1:4))
 
 a %>%
   group_by(cluster) %>%
@@ -350,24 +381,8 @@ a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[17])), color = ~cluster, col
 ```
 
 
-
-```{r}
-```
-
-
-
-
-```{r}
-```
-
-
-
-
-```{r}
-```
-
 # Notes
 
-1. There are a lot of outliers, so try a clustering method that does a better job of handling outliers, e.g. dbscan
+1. Better outlier handling
 2. Add elbow method for determining optimal number of clusters
-3. Try daisy, gower
+3. feature scaling -- perhaps log scale would be a good idea for some of the features that are grossly NOT normally distributed

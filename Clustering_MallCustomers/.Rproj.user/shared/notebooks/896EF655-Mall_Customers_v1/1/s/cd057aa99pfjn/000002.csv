@@ -1,3 +1,0 @@
-"0","```r
-train = train %>% mutate(gender = if_else(gender == 'Male', 1, 0))
-```"

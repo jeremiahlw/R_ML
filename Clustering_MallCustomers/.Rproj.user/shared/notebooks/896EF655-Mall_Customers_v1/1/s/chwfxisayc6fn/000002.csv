@@ -1,8 +1,0 @@
-"0","```r
-a = read_csv(here::here('/Clustering/Mall_Customers.csv')) %>%  #1
-  mutate(across(where(is.character),as.factor)) %>% #2
-  clean_names(.) %>% #3
-  select(sort(tidyselect::peek_vars())) %>% #4
-  select(where(is.factor), where(is.numeric)) %>%  #5
-  select(-customer_id)
-```"

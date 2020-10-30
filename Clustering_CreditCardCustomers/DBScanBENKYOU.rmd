@@ -1,0 +1,83 @@
+---
+title: "DBScan Fundamentals"
+author: 'Jeremiah Wang'
+date: "2020-10-31"
+output:
+  html_document:
+    theme: simplex
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+# Resources
+1. https://www.webpages.uidaho.edu/~stevel/517/RDM-slides-clustering-with-r.pdf
+    + start from slide 38
+2, https://www.datanovia.com/en/lessons/dbscan-density-based-clustering-essentials/#method-for-determining-the-optimal-eps-value
+3. http://www.sthda.com/english/wiki/wiki.php?id_contents=7940
+
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(fpc)
+library(dbscan)
+library(factoextra)
+```
+
+#IRIS dataset
+
+## Get & Preprocess Data
+```{r}
+head(iris)
+#cheating by confirming there SHOULD be 3 species
+iris$Species %>% unique #setosa, versicolor, virginica 
+ds = iris %>% select(-Species) #removing label/species col
+ds = ds %>% scale
+```
+
+
+## Determine optimal eps arg
+```{r}
+knn.distances = ds %>% dbscan::kNNdist(k = 3)
+ds %>% dbscan::kNNdistplot(k = 3); abline(v = 127, lty =2, col = 'blue');abline(h = 0.61, lty =2, col = 'red') # might need to play around with guessing what 'h' is
+```
+
+
+## DBSCAN
+```{r}
+(dbs = dbscan::dbscan(ds, eps = 0.61, minPts = 3))
+plot(dbs, ds)
+
+```
+
+#MULTISHAPES dataset
+
+## Get & Preprocess Data
+```{r}
+multishapes %>% head
+multishapes$shape %>% unique #'cheating' by confirming we SHOULD have 6 distinct shapes
+ds = multishapes %>% select(-shape)
+ds = ds %>% scale
+```
+
+## Determine optimal eps arg
+```{r}
+ds %>% dbscan::kNNdistplot(k = 3);abline(v = 1055, lty =2, col = 'blue');abline(h = 0.18, lty =2, col = 'red') # might need to play around with guessing what 'h' is
+```
+
+
+## DBSCAN
+```{r}
+(dbs = dbscan::dbscan(ds, eps = 0.18, minPts = 3))
+plot(dbs, ds)
+
+```

@@ -1,6 +1,0 @@
-"0","```r
-set.seed(321)
-split = a %>% initial_split()
-train = split %>% training()
-test = split %>% testing()
-```"
