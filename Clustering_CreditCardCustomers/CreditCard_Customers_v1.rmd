@@ -167,16 +167,28 @@ a %>% GGally::ggcorr(low = '#990000', mid = '#E0E0E0', high = '#009900', label =
 ### remove missing rows
 ```{r}
 a = a %>% na.omit()
+abak = a
 ```
 
-### transformation: normalize data
+<h style="color: blue; font-size:12px;">I feel fine removing only 3.5% of the dataset</h>
+
+### transformation: log
 ```{r}
-a.scale = a %>% scale
+#a = abak
+a = a %>% map_df(~ifelse(.x == 0, 0.00000001 , .x + 0.00000001))
+a.log = a %>% map_df(log)
+```
+
+<h style="color: blue; font-size:12px;">Because we have zeroes in our data, you need at add a small constant before logging; if you don't, you'll get infinite values''</h>
+
+# Sanity Check
+```{r}
+DataExplorer::plot_histogram(a.log, nrow = 3, ncol = 3)
 ```
 
 ### create matrix
 ```{r}
-a.matrix = a.scale %>% as.matrix
+a.matrix = a.log %>% as.matrix
 ```
 
 # Determine Optimal Number of Clusters
@@ -214,9 +226,9 @@ plot(hclust.a, hang = -1, cex = 0.8, main = NULL, xlab = NULL);abline(h = 220000
 #At a given height cutoff of x
 #Clusters below height x  have a [dist.method] [hclust.method] distance <= height cutoff
 
-hclust.colors = RColorBrewer::brewer.pal(4, 'Paired') #choose # of cols corresponding an optimal number of clusters
+hclust.colors = RColorBrewer::brewer.pal(5, 'Paired') #choose # of cols corresponding an optimal number of clusters
 
-hclust.clusters = cutree(hclust.a, 4)
+hclust.clusters = cutree(hclust.a, 5)
 
 plot(as.phylo(hclust.a), type = 'fan', tip.color = hclust.colors[hclust.clusters],
      label.offset = 2, cex = 1.0)
@@ -236,79 +248,17 @@ plot(ape::as.phylo(hclust.a), type = 'unrooted', tip.color = hclust.colors[hclus
 km = eclust(
   a.matrix,
   FUNcluster="kmeans",
-  k=4,
+  k=5,
   hc_metric = "euclidean",
   hc_method = "ward.D2",
   )
-```
-
-# Clustering via Centroid Based Methods: PAM
-
-### Create Distance Matrix
-```{r}
-#gower distances allow you to work with both nominal and numeric data
-gower_dist <- cluster::daisy(a.scale, metric = "gower")
-gower_mat <- as.matrix(gower_dist)
-```
-
-
-### Implementing K Medoids Clustering
-```{r cache=TRUE}
-#Using PAM (partitioning around medoids) clustering, calculate silhouette width for k-medoids 
-max.clusters = 10
-
-sil_width <- c(NA)
-  
-  for(i in 2:max.clusters){
-    
-    pam_fit <- cluster::pam(gower_dist,
-                            diss = TRUE,
-                            k = i)
-    
-    sil_width[i] <- pam_fit$silinfo$avg.width
-    
-  }
-
-gc() #clear memory
-```
-
-### Plot results
-```{r fig.width=12, fig.height=9}
-
-plot(1:10, sil_width,
-       xlab = "Number of medoids/clusters",
-       ylab = "Silhouette Width")
-lines(1:10, sil_width)
-```
-
-
-### Finalize PAM model with optimal number of medoids
-```{r finalfit}
-pam_fit <- cluster::pam(gower_dist,
-                          diss = TRUE,
-                          k = 4)
-```
-
-
-### Visualize the Clusters
-```{r fig.width=16, fig.height=12}
-tsne_obj <- Rtsne::Rtsne(gower_dist, is_distance = TRUE)
-
-tsne_data <- tsne_obj$Y %>%
-  data.frame() %>%
-  setNames(c("X", "Y")) %>%
-  mutate(cluster = factor(pam_fit$clustering))
-
-(graph.clusters = ggplot(aes(x = X, y = Y), data = tsne_data) +
-  geom_point(aes(color = cluster)))
-
 ```
 
 # Summarize Clustering Results
 
 ### summary: data
 ```{r message=FALSE}
-a = a %>% mutate(cluster = factor(km$cluster, levels = 1:4))
+a = a %>% mutate(cluster = factor(km$cluster, levels = 1:5))
 
 a %>%
   group_by(cluster) %>%
@@ -405,3 +355,7 @@ a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[17])), color = ~cluster, col
 1. Better outlier handling
 2. Add elbow method for determining optimal number of clusters
 3. feature scaling -- perhaps log scale would be a good idea for some of the features that are grossly NOT normally distributed
+
+
+
+
