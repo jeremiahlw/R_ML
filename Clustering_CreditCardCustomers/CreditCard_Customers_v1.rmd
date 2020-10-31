@@ -81,7 +81,7 @@ In one piped statement:
 4. order cols by name: alphabetically
 5. order cols by datatype: nominal, then numeric
 
-# Get and Split Data
+# Get Data
 ```{r message=FALSE}
 a = read_csv('CreditCard_Customers.csv') %>% 
   clean_names() %>% 
@@ -120,15 +120,35 @@ DataExplorer::plot_histogram(a, nrow = 3, ncol = 3)
 ### outliers: viz
 ```{r}
 #find names of cols with outliers_ratio > 10%
-(a %>% diagnose_outlier() %>% filter(outliers_ratio > 10))
-outlier.cols = a %>% diagnose_outlier() %>% filter(outliers_ratio > 10) %>% select(variables) %>% pull()
+(a %>% diagnose_outlier() %>% filter(outliers_ratio > 5))
+outlier.cols = a %>% diagnose_outlier() %>% filter(outliers_ratio > 5) %>% select(variables) %>% pull()
 
 a %>% plot_outlier(all_of(outlier.cols))
 ```
 
 ### normality: viz
 ```{r}
-a %>% plot_normality(balance, payments, tenure)
+a %>% plot_normality(
+  colnames(a)[1],
+  colnames(a)[2],
+  colnames(a)[3],
+  colnames(a)[4],
+  colnames(a)[5],
+  colnames(a)[6],
+  colnames(a)[7],
+  colnames(a)[8],
+  colnames(a)[9],
+  colnames(a)[10],
+  colnames(a)[11],
+  colnames(a)[12],
+  colnames(a)[13],
+  colnames(a)[14],
+  colnames(a)[15],
+  colnames(a)[16],
+  colnames(a)[17]
+  )
+
+
 ```
 
 
@@ -149,7 +169,7 @@ a %>% GGally::ggcorr(low = '#990000', mid = '#E0E0E0', high = '#009900', label =
 a = a %>% na.omit()
 ```
 
-### normalize data
+### transformation: normalize data
 ```{r}
 a.scale = a %>% scale
 ```
@@ -319,7 +339,6 @@ a %>%
 library(ggthemes)
 DataExplorer::plot_boxplot(a, by = 'cluster', nrow = 3, ncol = 1)
 ```
-
 
 ### summary: viz
 ```{r warning=FALSE, fig.width=12, fig.height=9, cache=TRUE}
