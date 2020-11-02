@@ -1,4 +1,0 @@
-"0","a = read_csv('train.csv') %>%"
-"0","  mutate(across(where(is.character),as.factor)) %>%"
-"0","  clean_names(.) %>% select(sort(tidyselect::peek_vars())) %>%"
-"0","  select(where(is.factor), where(is.numeric))"

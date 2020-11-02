@@ -345,17 +345,3 @@ a %>% plot_ly(y = ~cluster, x = ~eval(as.name(xvars[17])), color = ~cluster, col
 
 ```
 
-```{r warning=FALSE}
-
-```
-
-
-# Notes
-
-1. Better outlier handling
-2. Add elbow method for determining optimal number of clusters
-3. feature scaling -- perhaps log scale would be a good idea for some of the features that are grossly NOT normally distributed
-
-
-
-

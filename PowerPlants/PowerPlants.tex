@@ -1,0 +1,287 @@
+\documentclass[]{tufte-handout}
+
+% ams
+\usepackage{amssymb,amsmath}
+
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \makeatletter
+  \@ifpackageloaded{fontspec}{}{\usepackage{fontspec}}
+  \makeatother
+  \defaultfontfeatures{Ligatures=TeX,Scale=MatchLowercase}
+  \makeatletter
+  \@ifpackageloaded{soul}{
+     \renewcommand\allcapsspacing[1]{{\addfontfeature{LetterSpace=15}#1}}
+     \renewcommand\smallcapsspacing[1]{{\addfontfeature{LetterSpace=10}#1}}
+   }{}
+  \makeatother
+
+\fi
+
+% graphix
+\usepackage{graphicx}
+\setkeys{Gin}{width=\linewidth,totalheight=\textheight,keepaspectratio}
+
+% booktabs
+\usepackage{booktabs}
+
+% url
+\usepackage{url}
+
+% hyperref
+\usepackage{hyperref}
+
+% units.
+\usepackage{units}
+
+
+\setcounter{secnumdepth}{-1}
+
+% citations
+
+
+% pandoc syntax highlighting
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\newenvironment{Shaded}{}{}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{#1}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+
+% longtable
+
+% multiplecol
+\usepackage{multicol}
+
+% strikeout
+\usepackage[normalem]{ulem}
+
+% morefloats
+\usepackage{morefloats}
+
+
+% tightlist macro required by pandoc >= 1.14
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% title / author / date
+\title{Power Plants}
+\author{Jeremiah W}
+\date{November 2020}
+
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage{colortbl}
+\usepackage{pdflscape}
+\usepackage{tabu}
+\usepackage{threeparttable}
+\usepackage{threeparttablex}
+\usepackage[normalem]{ulem}
+\usepackage{makecell}
+
+\begin{document}
+
+\maketitle
+
+
+
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# regarding \textquotesingle{}readthedown\textquotesingle{} theme}
+\CommentTok{\# https://cran.r{-}project.org/web/packages/rmdformats/vignettes/introduction.html}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# https://datatables.net/reference/option/}
+\KeywordTok{options}\NormalTok{(}\DataTypeTok{DT.options =} \KeywordTok{list}\NormalTok{(}\DataTypeTok{scrollX =} \OtherTok{TRUE}\NormalTok{, }\DataTypeTok{pagin =} \OtherTok{TRUE}\NormalTok{, }\DataTypeTok{fixedHeader =} \OtherTok{TRUE}\NormalTok{, }\DataTypeTok{searchHighlight =} \OtherTok{TRUE}\NormalTok{))}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{introduction}{%
+\section{Introduction}\label{introduction}}
+
+\href{https://www.kaggle.com/anikannal/solar-power-generation-data}{Check
+out this Kaggle}
+
+\emph{This data has been gathered at two solar power plants in India
+over a 34 day period. It has two pairs of files - each pair has one
+power generation dataset and one sensor readings dataset. The power
+generation datasets are gathered at the inverter level - each inverter
+has multiple lines of solar panels attached to it. The sensor data is
+gathered at a plant level - single array of sensors optimally placed at
+the plant.}
+
+There are a few areas of concern at the solar power plant -
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Can we predict the power generation for next couple of days? - this
+  allows for better grid management
+\item
+  Can we identify the need for panel cleaning/maintenance?
+\item
+  Can we identify faulty or suboptimally performing equipment?
+\end{enumerate}
+
+\hypertarget{get-and-split-data-generation-plant-1}{%
+\section{Get and Split Data: Generation: Plant
+1}\label{get-and-split-data-generation-plant-1}}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{p1.gd =}\StringTok{ }\KeywordTok{read\_csv}\NormalTok{(}\StringTok{\textquotesingle{}Plant\_1\_Generation\_Data.csv\textquotesingle{}}\NormalTok{) }\OperatorTok{\%\textgreater{}\%}\StringTok{ }\KeywordTok{head}\NormalTok{(}\DecValTok{200}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## 
+## -- Column specification -----------------------------------------
+## cols(
+##   DATE_TIME = col_character(),
+##   PLANT_ID = col_double(),
+##   SOURCE_KEY = col_character(),
+##   DC_POWER = col_double(),
+##   AC_POWER = col_double(),
+##   DAILY_YIELD = col_double(),
+##   TOTAL_YIELD = col_double()
+## )
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{p1.gd =}\StringTok{ }\KeywordTok{read\_csv}\NormalTok{(}\StringTok{\textquotesingle{}Plant\_1\_Generation\_Data.csv\textquotesingle{}}\NormalTok{) }\OperatorTok{\%\textgreater{}\%}\StringTok{ }
+\StringTok{  }\KeywordTok{clean\_names}\NormalTok{() }\OperatorTok{\%\textgreater{}\%}\StringTok{  }\CommentTok{\#lowercase}
+\StringTok{  }\KeywordTok{select}\NormalTok{(}\KeywordTok{sort}\NormalTok{(tidyselect}\OperatorTok{::}\KeywordTok{peek\_vars}\NormalTok{())) }\OperatorTok{\%\textgreater{}\%}\StringTok{ }\CommentTok{\#sort cols alphabetically}
+\StringTok{  }\KeywordTok{select}\NormalTok{(}\KeywordTok{where}\NormalTok{(is.factor),}\KeywordTok{where}\NormalTok{(is.character),}\KeywordTok{where}\NormalTok{(is.numeric)) }\CommentTok{\#group by data type}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## 
+## -- Column specification -----------------------------------------
+## cols(
+##   DATE_TIME = col_character(),
+##   PLANT_ID = col_double(),
+##   SOURCE_KEY = col_character(),
+##   DC_POWER = col_double(),
+##   AC_POWER = col_double(),
+##   DAILY_YIELD = col_double(),
+##   TOTAL_YIELD = col_double()
+## )
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\#OlsonNames()}
+\CommentTok{\#https://stackoverflow.com/questions/41479008/what{-}is{-}the{-}correct{-}tz{-}database{-}time{-}zone{-}for{-}india}
+
+\NormalTok{p1.gd}\OperatorTok{$}\NormalTok{date\_time =}\StringTok{ }\KeywordTok{as.POSIXct}\NormalTok{(}\KeywordTok{strptime}\NormalTok{(p1.gd}\OperatorTok{$}\NormalTok{date\_time, }\StringTok{"\%d{-}\%m{-}\%Y \%H:\%M"}\NormalTok{), }\DataTypeTok{tz =} \StringTok{\textquotesingle{}Asia/Kolkata\textquotesingle{}}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{p1.gd }\OperatorTok{\%\textgreater{}\%}\StringTok{ }\NormalTok{head}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 6 x 7
+##   date_time           source_key ac_power daily_yield dc_power plant_id
+##   <dttm>              <chr>         <dbl>       <dbl>    <dbl>    <dbl>
+## 1 2020-05-15 00:00:00 1BY6WEcLG~        0           0        0  4135001
+## 2 2020-05-15 00:00:00 1IF53ai7X~        0           0        0  4135001
+## 3 2020-05-15 00:00:00 3PZuoBAID~        0           0        0  4135001
+## 4 2020-05-15 00:00:00 7JYdWkrLS~        0           0        0  4135001
+## 5 2020-05-15 00:00:00 McdE0feGg~        0           0        0  4135001
+## 6 2020-05-15 00:00:00 VHMLBKoKg~        0           0        0  4135001
+## # ... with 1 more variable: total_yield <dbl>
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{p1.gd }\OperatorTok{\%\textgreater{}\%}\StringTok{ }\KeywordTok{slice\_sample}\NormalTok{(}\DataTypeTok{n =} \DecValTok{5}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 5 x 7
+##   date_time           source_key ac_power daily_yield dc_power plant_id
+##   <dttm>              <chr>         <dbl>       <dbl>    <dbl>    <dbl>
+## 1 2020-05-15 06:15:00 rGa61gmuv~    30.5        3        315.   4135001
+## 2 2020-06-14 06:00:00 WRmjgnKYA~     5.24       0.125     54.5  4135001
+## 3 2020-06-11 22:00:00 z9Y9gH1T5~     0       5599          0    4135001
+## 4 2020-05-28 03:30:00 z9Y9gH1T5~     0          0          0    4135001
+## 5 2020-06-13 10:45:00 YxYtjZvoo~   896.      2607.      9176.   4135001
+## # ... with 1 more variable: total_yield <dbl>
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{p1.gd }\OperatorTok{\%\textgreater{}\%}\StringTok{ }\KeywordTok{glimpse}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Rows: 68,778
+## Columns: 7
+## $ date_time   <dttm> 2020-05-15 00:00:00, 2020-05-15 00:00:00, 2020-05-15 0...
+## $ source_key  <chr> "1BY6WEcLGh8j5v7", "1IF53ai7Xc0U56Y", "3PZuoBAID5Wc2HD"...
+## $ ac_power    <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0...
+## $ daily_yield <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0...
+## $ dc_power    <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0...
+## $ plant_id    <dbl> 4135001, 4135001, 4135001, 4135001, 4135001, 4135001, 4...
+## $ total_yield <dbl> 6259559, 6183645, 6987759, 7602960, 7158964, 7206408, 7...
+\end{verbatim}
+
+\hypertarget{eda}{%
+\section{EDA}\label{eda}}
+
+
+
+\end{document}

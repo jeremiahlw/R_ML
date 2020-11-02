@@ -2,16 +2,10 @@
 title: "Supervised ML | Type: Numeric Response"
 author: "Jeremiah Wang"
 output:
-    html_document:
-      theme: paper
-      highlight: default
-      code_folding: hide
-      df_print: paged
-      toc: true
-      toc_depth: 2
-      toc_float:
-        collapsed: false
-        smooth_scroll: false
+    prettydoc::html_pretty:
+      theme: cayman
+      highlight: github
+
 ---
   
 ```{r}

@@ -1,6 +1,6 @@
 ---
-title: "Supervised ML | Type: Numeric Response"
-author: "Jeremiah Wang"
+title: "Predicting Housing Prices"
+author: "Jeremiah W"
 output:
     html_document:
       theme: paper
@@ -38,8 +38,6 @@ options(DT.options = list(scrollX = TRUE, paging=TRUE, fixedHeader=TRUE, searchH
 }
 ```
 
-<h3 style="color: red; font-size:14px;">NOTE_GOES_HERE</h3>
-
 ```{r results='hide', message=FALSE, warning=FALSE}
 #load packages
 #default
@@ -55,7 +53,7 @@ library(kableExtra)
 library(caret);library(tidymodels);library(h2o);library(glmnet)
 ```
 
-# Get the Data
+# Get & Split the Data
 
 In one piped statement:
   
@@ -70,21 +68,13 @@ a = read_csv('train.csv') %>%
   mutate(across(where(is.character),as.factor)) %>%
   clean_names(.) %>% select(sort(tidyselect::peek_vars())) %>%
   select(where(is.factor), where(is.numeric))
-```
 
-### split data using recipes package
-```{r }
 split = a %>% initial_split(strata = sale_price)
 train = rsample::training(split)
 test = rsample::testing(split)
 ```
 
 # EDA: nom vars
-
-### var reference
-```{r}
-
-```
 
 ### check head rows
 ```{r}
@@ -168,7 +158,6 @@ DataExplorer::plot_density(train %>% select(where(is.numeric)))
 GGally::ggcorr(train %>% select(where(is.numeric)), low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
 ```
 
-
 # EDA: other
 ### check distribution of response var in more detail: right skewed
 ```{r}
@@ -176,8 +165,6 @@ train %>% ggplot(aes(sale_price)) + geom_freqpoly()
 train %>% ggplot(aes(sale_price)) + geom_histogram()
 summary(train$sale_price)
 ```
-
-
 
 ### check for normality in distribution of dependent var
 ```{r}
@@ -265,7 +252,6 @@ juiced.train %>% select(where(is.numeric)) %>% DataExplorer::plot_boxplot(by = '
 ### sanity check: num vars - pairwise correlations: viz
 ```{r fig.width= 20, fig.height= 20, cache= TRUE, eval=FALSE}
 GGally::ggcorr(juiced.train %>% select(where(is.numeric)), low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
-
 
 ```
 
@@ -530,49 +516,11 @@ print(aml@leaderboard)
 aml.preds = predict(aml@leader, test)
 ```
 
-
 ### automl leader model assessment
 ```{r eval=0}
 print(h2o.performance(aml@leader, test)) #23967.5
 ```
-
-
-## Notes / Ideas
-1. glm net
-2. ohe
-3. 
-4. add the data description in 'appendix section' 
-5. comparison with automatic EDA package dlookr, DataExplorer
-## 
-1. 
-2. 
-
-## Learning
-1. (paged tables)[https://bookdown.org/yihui/rmarkdown/html-document.html]
-2. (scrollable tables)[https://rstudio.github.io/DT/]
-3. https://www.r-bloggers.com/be-aware-of-bias-in-rf-variable-importance-metrics/
-4. (in what order should your preprocess vars?)things?[https://towardsdatascience.com/a-comprehensive-machine-learning-workflow-with-multiple-modelling-using-caret-and-caretensemble-in-fcbf6d80b5f2]
-5. (AutoML)[http://htmlpreview.github.io/?https://github.com/h2oai/h2o-tutorials/blob/master/h2o-world-2017/automl/R/automl_regression_powerplant_output.html]
-
-```{r eval=FALSE}
-# bedroom_abv_gr  
-# bsmt_full_bath  
-# bsmt_half_bath
-# fireplaces
-# full_bath
-# garage_cars
-# half_bath
-# mo_sold *
-# ms_sub_class *
-# overall_cond 
-# overall_qual
-# tot_rms_abv_grd
-
- setdiff(
-   sort(unique(train$year_built)),
-   sort(unique(test$year_built))
- )
- 
+```{r}
 
 ```
 
