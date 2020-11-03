@@ -10,6 +10,8 @@ output:
     lightbox: true
     gallery: false
     highlight: tango
+    fig_width: 6
+    fig_height: 4
 ---
 
 # MISC
@@ -94,7 +96,7 @@ There are a few areas of concern at the solar power plant -
 ```{r message=FALSE}
 
 p1.gd = read_csv('Plant_1_Generation_Data.csv') %>%
-  slice_sample(prop = 0.05) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
+  slice_sample(prop = 1) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
   clean_names() %>%  #lowercase
   select(sort(tidyselect::peek_vars())) %>% #sort cols alphabetically
   select(where(is.factor),where(is.character),where(is.numeric)) #sort cols by data type
@@ -140,7 +142,7 @@ sapply(p1.gd %>% select(where(is.factor)), unique) %>% as.data.frame() %>% arran
 
 ### viz: distribution of level counts
 
-```{r fig.width=12, fig.height=9}
+```{r}
 jpal = colorRampPalette(brewer.pal(8,'Dark2'))(22)
 
 p1.gd %>% count(inverter) %>% plot_ly(y = ~fct_reorder(inverter,n), x = ~n, color = ~inverter, colors = jpal) %>% add_bars(hoverinfo = 'text', text = ~n) %>% hide_legend() %>% layout(
@@ -156,13 +158,13 @@ p1.gd %>% count(inverter) %>% plot_ly(y = ~fct_reorder(inverter,n), x = ~n, colo
 
 ### viz bivariate numeric distribution
 
-```{r fig.width=12, fig.height=9}
+```{r}
 DataExplorer::plot_boxplot(p1.gd %>% select(where(is.numeric)), by = 'daily_yield')
 ```
 
 
 ### viz: numeric univariate distributions
-```{r fig.width=12, fig.height=9}
+```{r}
 names.numeric = p1.gd %>% select(where(is.numeric)) %>% names
 
 p1.gd %>% dlookr::plot_normality(
@@ -175,13 +177,14 @@ p1.gd %>% dlookr::plot_normality(
 <h style="color: red; font-size:12px;">The 0s for ac/dc power and daily_yield likely indicate the inverter was powered off for a 'rest day' / maintenance</h>
 
 ### viz: numeric univariate distributions
-```{r fig.width=12, fig.height=9}
+```{r fig.width= 12}
 DataExplorer::plot_density(p1.gd %>% select(where(is.numeric)))
 ```
+<h style="color: blue; font-size:12px;"> the inverters clearly have a wide distribution of daily_yield and total yield.  Looking at daily yield, we can infer that that on a daily basis most inverters are either having cleaning/maintenance done, or are producing >= 6.5k units of energy.  Looking at total yield, we can infer that for this entire period, most inverters produced around slightly under 6.5 million units of energy, or 7.25 million units of energy </h>
 
 ### viz: distributions by 'inverter' factor
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p1.gd %>% mutate(inverter = fct_reorder(.f = inverter, .x = daily_yield, .fun = median, .desc = TRUE)) %>%
   plot_ly(y = ~inverter, x = ~daily_yield, color = ~inverter, colors = jpal) %>% add_boxplot()%>%
   hide_legend() %>% layout(xaxis = list(title = ''), yaxis = list(title = ''), title = 'Distribution of Daily Yield by Inverter')
@@ -195,8 +198,8 @@ p1.gd %>% mutate(inverter = fct_reorder(.f = inverter, .x = dc_power, .fun = med
   hide_legend() %>% layout(xaxis = list(title = ''), yaxis = list(title = ''), title = 'Distribution of DC Power by Inverter')
 ```
 
-### viz: 'Rest?/Maintenace? Days' Check
-```{r fig.width = 12, fig.height = 9, cache = TRUE, eval=FALSE}
+### viz: cleaning/maintenance days
+```{r cache = TRUE, eval=FALSE}
 p1.gd %>% arrange(date_time) %>% group_nest(inverter) %>% unnest
 
 p1.gd.plots = p1.gd %>% arrange(date_time) %>% group_nest(inverter) %>% mutate(
@@ -214,7 +217,7 @@ p1.gd.plots$plots
 
 ### correlations: viz
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p1.gd %>% dlookr::plot_correlate()
 ```
 
@@ -224,7 +227,7 @@ p1.gd %>% dlookr::plot_correlate()
 
 ## Anomoly Plot
 
-```{r fig.width=12, fig.height= 9, warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, fig.width=12, fig.height= 48}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
@@ -238,19 +241,18 @@ p1.gd.anomalize = p1.gd %>% arrange(date_time) %>%
   anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
   time_recompose()
 
-ggplotly(
   p1.gd.anomalize %>%
     plot_anomalies(
-      ncol = 2,
+      ncol = 1,
       alpha_dots = 0.5,
       alpha_circles = 0.5,
-      size_circles = 2,
+      size_circles = 1.5,
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'daily yield')
-  ) %>% layout(showlegend = FALSE)
+    labs(x = '', y = 'daily_yield', title = 'daily_yield')
 ```
+<h style="color: red; font-size:12px;">Something abnormal clearly happened between around May 18th to the end of May.  We should investigate the inverters that were affected.</h>
 
 # Power Generation Inverter data set: Plant 2
 
@@ -259,7 +261,7 @@ ggplotly(
 ```{r message=FALSE}
 
 p2.gd = read_csv('Plant_2_Generation_Data.csv') %>%
-  slice_sample(prop = 0.05) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
+  slice_sample(prop = 1) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
   clean_names() %>%  #lowercase
   select(sort(tidyselect::peek_vars())) %>% #sort cols alphabetically
   select(where(is.POSIXct), where(is.factor),where(is.character),where(is.numeric)) #sort cols by data type
@@ -304,7 +306,7 @@ sapply(p2.gd %>% select(where(is.factor)), unique) %>% as.data.frame() %>% arran
 
 ### viz: distribution of level counts
 
-```{r fig.width=12, fig.height=9}
+```{r}
 jpal = colorRampPalette(brewer.pal(8,'Dark2'))(22)
 
 p2.gd %>% count(inverter) %>% plot_ly(y = ~fct_reorder(inverter,n), x = ~n, color = ~inverter, colors = jpal) %>% add_bars(hoverinfo = 'text', text = ~n) %>% hide_legend() %>% layout(
@@ -314,19 +316,19 @@ p2.gd %>% count(inverter) %>% plot_ly(y = ~fct_reorder(inverter,n), x = ~n, colo
     ) 
 ```
 
-<h style="color: blue; font-size:12px;">Sanity Check - PASS - Pretty much a uniform distribution</h>
+<h style="color: red; font-size:24px;">Sanity Check - FAIL - We should find out why the bottom 4 inverters have fewer counts.  Were they totally out of commission during the abnormal date range aforementioned?</h>
 
 ## EDA: Numeric Vars
 
 ### viz bivariate numeric distribution
 
-```{r fig.width=12, fig.height=9}
+```{r}
 DataExplorer::plot_boxplot(p2.gd %>% select(where(is.numeric)), by = 'daily_yield')
 ```
 
 ### viz: numeric univariate distributions
 
-```{r fig.width=12, fig.height=9}
+```{r}
 names.numeric = p2.gd %>% select(where(is.numeric)) %>% names
 
 p2.gd %>% dlookr::plot_normality(
@@ -341,13 +343,14 @@ p2.gd %>% dlookr::plot_normality(
 
 ### viz: numeric univariate distributions
 
-```{r fig.width=12, fig.height=9}
+```{r fig.width = 12}
 DataExplorer::plot_density(p2.gd %>% select(where(is.numeric)))
 ```
+<h style="color: blue; font-size:12px;"> the inverters clearly have a wide distribution of daily_yield and total yield.  Looking at daily yield, we can infer that that on a daily basis most inverters are either having cleaning/maintenance done, or producing around 3.7k, 7.5k, 9.0k units of energy  Looking at total yield, we can infer that for this entire period, most inverters produced around slightly under 1.3 billion units of energy, or 1.8 billion units of energy.  **This is a lot more than Plant 1.** </h>
 
 ### viz: distributions by 'inverter' factor
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p2.gd %>% mutate(inverter = fct_reorder(.f = inverter, .x = daily_yield, .fun = median, .desc = TRUE)) %>%
   plot_ly(y = ~inverter, x = ~daily_yield, color = ~inverter, colors = jpal) %>% add_boxplot()%>%
   hide_legend() %>% layout(xaxis = list(title = ''), yaxis = list(title = ''), title = 'Distribution of Daily Yield by Inverter')
@@ -361,8 +364,10 @@ p2.gd %>% mutate(inverter = fct_reorder(.f = inverter, .x = dc_power, .fun = med
   hide_legend() %>% layout(xaxis = list(title = ''), yaxis = list(title = ''), title = 'Distribution of DC Power by Inverter')
 ```
 
-### viz: 'Rest?/Maintenace? Days' Check
-```{r fig.width = 12, fig.height = 9, cache=TRUE, eval=FALSE}
+<h style="color: red; font-size:12px;">we should probably investigate why yellowish(Quc1TzYxW2pYoWX), pink (LYwnQax7tkwH5Cb) and purple (Et9kgGMDl729KT4) have so many outliers</h>
+
+### viz: cleaning/maintenance days
+```{r cache=TRUE, eval=FALSE}
 p2.gd %>% arrange(date_time) %>% group_nest(inverter) %>% unnest
 
 p2.gd.plots = p2.gd %>% arrange(date_time) %>% group_nest(inverter) %>% mutate(
@@ -379,7 +384,7 @@ p2.gd.plots$plots
 
 ### correlations: viz
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p2.gd %>% dlookr::plot_correlate()
 ```
 
@@ -389,7 +394,7 @@ p2.gd %>% dlookr::plot_correlate()
 
 ## Anomoly Plot
 
-```{r fig.width=12, fig.height= 9, warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, fig.width=12, fig.height= 48}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
@@ -403,23 +408,18 @@ p2.gd.anomalize = p2.gd %>% arrange(date_time) %>%
   anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
   time_recompose()
 
-ggplotly(
   p2.gd.anomalize %>%
     plot_anomalies(
-      ncol = 2,
+      ncol = 1,
       alpha_dots = 0.5,
       alpha_circles = 0.5,
-      size_circles = 2,
+      size_circles = 1.5,
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'daily yield')
-  ) %>% layout(showlegend = FALSE)
+    labs(x = '', y = 'daily_yield', title = 'daily_yield')
 ```
-
-```{r}
-
-```
+<h style="color: red; font-size:24px;">Abnormal activity occurred from May 18th to the end of May.  We hypothesize this was an exogenous factor, as both solar power plants were affected.  In the case of power plant 2, 4 inverters were completely down.</h>
 
 # DATA DICTIONARY for Sensor Reading data sets
 
@@ -437,7 +437,7 @@ ggplotly(
 ```{r message=FALSE}
 
 p1.ws = read_csv('Plant_1_Weather_Sensor_Data.csv') %>%
-  slice_sample(prop = 0.05) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
+  slice_sample(prop = 1) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
   clean_names() %>%  #lowercase
   mutate(across(where(is.character),factor)) %>% 
   select(sort(tidyselect::peek_vars())) %>% #sort cols alphabetically
@@ -468,33 +468,33 @@ p1.ws %>% miss_var_summary
 ## EDA: Numeric Vars
 
 ### viz: numeric univariate distributions
-```{r fig.width=12, fig.height=9}
+```{r}
 p1.ws %>% select(where(is.numeric)) %>% dlookr::plot_normality()
 ```
 
 ### viz: numeric univariate outlier check
-```{r fig.width=12, fig.height=9}
+```{r}
 p1.ws %>% select(where(is.numeric)) %>% dlookr::diagnose_outlier()
 ```
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p1.ws %>% select(where(is.numeric)) %>% DataExplorer::plot_density()
 ```
 
 
 ### correlations: viz
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p1.ws %>% dlookr::plot_correlate()
 ```
 
 ```{r}
 p1.ws %>% select(where(is.numeric)) %>% GGally::ggcorr(low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
 ```
-
+<h style="color: blue; font-size:12px;">irradiation and module_temperature have a perfect correlation, which is to be expected.  </h>
 
 ### viz: Time Series w/IQR percentiles
-```{r fig.width = 12, fig.height = 9, cache=TRUE}
+```{r cache=TRUE}
 ggplotly(p1.ws %>% ggplot(aes(date_time, ambient_temperature)) +
   geom_line(size = 1.2) +
   geom_hline(yintercept = quantile(p1.ws$ambient_temperature, 0.25), lty = 'dashed', alpha = 0.7, color = 'red', size = 1.1) +
@@ -518,20 +518,21 @@ ggplotly(p1.ws %>% ggplot(aes(date_time, module_temperature)) +
 
 ```
 
-```{r fig.width=12, fig.height= 9}
+```{r fig.width = 12}
 p1.ws %>% pivot_longer(ambient_temperature:module_temperature) %>% ggplot(aes(date_time, value, color = name)) + geom_line(size = 1.1) + facet_wrap(~name, ncol = 1, scales = 'free_y') + theme(legend.position = 'none')
 ```
+<h style="color: blue; font-size:12px;">Ambient temperature (red) peaks right before May 18th. Interestingly, irradiation and module temperature do not peak on this date.  Was this caused by an exogenous factor? We should investigate.  </h>
 
 ## Anomoly Plot
 
-```{r fig.width=12, fig.height= 9, warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
 # alpha: Controls the width of the "normal" range. Lower values are more conservative while higher values are less prone to incorrectly classifying "normal" observations.
 # max_anoms: The maximum percent of anomalies permitted to be identified.
 
-ggplotly(
+  ggplotly(
   p1.ws %>% arrange(date_time) %>% 
   time_decompose(ambient_temperature, method = 'twitter', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.15, method = 'gesd') %>%
@@ -544,11 +545,10 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'ambient_temperature')
-  ) %>% layout(showlegend = FALSE, title = 'ambient_temperature')
-
-
-ggplotly(
+    labs(x = '', y = 'ambient_temperature', title = 'ambient_temperature')
+  )
+  
+  ggplotly(
   p1.ws %>% arrange(date_time) %>% 
   time_decompose(irradiation, method = 'twitter', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
@@ -561,10 +561,10 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'irradiation')
-  ) %>% layout(showlegend = FALSE, title = 'irradiation')
+    labs(x = '', y = 'irradiation', title = 'irradiation')
+  )
 
-ggplotly(
+  ggplotly(
   p1.ws %>% arrange(date_time) %>% 
   time_decompose(module_temperature, method = 'twitter', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
@@ -577,10 +577,12 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'module_temperature')
-  ) %>% layout(showlegend = FALSE, title = 'module_temperature')
+    labs(x = '', y = 'module_temperature', title = 'module_temperature')
+  )
 
 ```
+
+<h style="color: blue; font-size:12px;">For all features, there are a ton of BOTH lower and upper outliers beginning around May 16th to the end of May, consistent with previous observations.  Things are  **heating up** in Plant 1.</h>
 
 # Sensor Data Set: Plant 2
 
@@ -589,7 +591,7 @@ ggplotly(
 ```{r message=FALSE}
 
 p2.ws = read_csv('Plant_2_Weather_Sensor_Data.csv') %>%
-  slice_sample(prop = 0.05) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
+  slice_sample(prop = 1) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
   clean_names() %>%  #lowercase
   mutate(across(where(is.character),factor)) %>% 
   select(sort(tidyselect::peek_vars())) %>% #sort cols alphabetically
@@ -620,23 +622,23 @@ p2.ws %>% miss_var_summary
 ## EDA: Numeric Vars
 
 ### viz: numeric univariate distributions
-```{r fig.width=12, fig.height=9}
+```{r}
 p2.ws %>% select(where(is.numeric)) %>% dlookr::plot_normality()
 ```
 
 ### viz: numeric univariate outlier check
-```{r fig.width=12, fig.height=9}
+```{r}
 p2.ws %>% select(where(is.numeric)) %>% dlookr::diagnose_outlier()
 ```
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p2.ws %>% select(where(is.numeric)) %>% DataExplorer::plot_density()
 ```
 
 
 ### correlations: viz
 
-```{r fig.width=12, fig.height=9}
+```{r}
 p2.ws %>% dlookr::plot_correlate()
 ```
 
@@ -646,7 +648,7 @@ p2.ws %>% select(where(is.numeric)) %>% GGally::ggcorr(low = '#990000', mid = '#
 
 
 ### viz: Time Series w/IQR percentiles
-```{r fig.width = 12, fig.height = 9, cache=TRUE}
+```{r cache=TRUE}
 ggplotly(p2.ws %>% ggplot(aes(date_time, ambient_temperature)) +
   geom_line(size = 1.2) +
   geom_hline(yintercept = quantile(p2.ws$ambient_temperature, 0.25), lty = 'dashed', alpha = 0.7, color = 'red', size = 1.1) +
@@ -670,20 +672,19 @@ ggplotly(p2.ws %>% ggplot(aes(date_time, module_temperature)) +
 
 ```
 
-```{r fig.width=12, fig.height= 9}
+```{r fig.width = 12}
 p2.ws %>% pivot_longer(ambient_temperature:module_temperature) %>% ggplot(aes(date_time, value, color = name)) + geom_line(size = 1.1) + facet_wrap(~name, ncol = 1, scales = 'free_y') + theme(legend.position = 'none')
 ```
 
 ## Anomoly Plot
 
-```{r fig.width=12, fig.height= 9, warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, fig.width=12, fig.height=9}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
 # alpha: Controls the width of the "normal" range. Lower values are more conservative while higher values are less prone to incorrectly classifying "normal" observations.
 # max_anoms: The maximum percent of anomalies permitted to be identified.
-
-ggplotly(
+  ggplotly(
   p2.ws %>% arrange(date_time) %>% 
   time_decompose(ambient_temperature, method = 'twitter', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.15, method = 'gesd') %>%
@@ -696,11 +697,10 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'ambient_temperature')
-  ) %>% layout(showlegend = FALSE, title = 'ambient_temperature')
+    labs(x = '', y = 'ambient_temperature', title = 'ambient_temperature')
+  )
 
-
-ggplotly(
+  ggplotly(
   p2.ws %>% arrange(date_time) %>% 
   time_decompose(irradiation, method = 'twitter', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
@@ -713,10 +713,10 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'irradiation')
-  ) %>% layout(showlegend = FALSE, title = 'irradiation')
-
-ggplotly(
+    labs(x = '', y = 'irradiation' , title = 'irradiation')
+  )
+  
+  ggplotly(
   p2.ws %>% arrange(date_time) %>% 
   time_decompose(module_temperature, method = 'twitter', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
@@ -729,8 +729,10 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'module_temperature')
-  ) %>% layout(showlegend = FALSE, title = 'module_temperature')
-
+    labs(x = '', y = 'module_temperature', title = 'module_temperature')
+  )
 
 ```
+
+<h style="color: blue; font-size:12px;">Ambient Temperature:  Plant 2 sensors were not affected the same way as Plant 1 sensors.  There were mainly ONLY lower outliers, and mostly only on May 19th.  Plant 2 ambient temperature was **colder**, in contradistinction to Plant 1 ambient temperature, which was **hotter**.</h>
+

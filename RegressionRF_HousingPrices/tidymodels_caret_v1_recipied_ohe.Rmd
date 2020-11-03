@@ -110,7 +110,7 @@ sapply(train %>% select(where(is.factor)), unique)
 ```
 
 ### distribution: viz
-```{r fig.width=16, fig.height=12}
+```{r}
 DataExplorer::plot_bar(train %>% select(where(is.factor)))
 ```
 
@@ -127,7 +127,7 @@ train %>% select(where(is.numeric)) %>% glimpse
 ```
 
 ### check for missing values
-```{r  rows.print = 10}
+```{r}
 (miss_var_summary(train %>% select(where(is.numeric))) %>% DT::datatable(options = list(scrollY = '500px')))
 
 ```
@@ -139,22 +139,22 @@ train %>% select(where(is.numeric)) %>% glimpse
 3. MasVnrArea: Masonry veneer area in square feet
 
 ### distribution: viz
-```{r fig.width=12, fig.height=9}
+```{r}
 DataExplorer::plot_boxplot(train %>% select(where(is.numeric)), by = 'sale_price')
 ```
 
 ### distribution: viz
-```{r fig.width=12, fig.height=9}
+```{r}
 DataExplorer::plot_histogram(train %>% select(where(is.numeric)))
 ```
 
 ### distribution: viz
-```{r fig.width=12, fig.height=9}
+```{r}
 DataExplorer::plot_density(train %>% select(where(is.numeric)))
 ```
 
 ### pairwise correlations: viz
-```{r fig.width=16, fig.height=12}
+```{r}
 GGally::ggcorr(train %>% select(where(is.numeric)), low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
 ```
 
@@ -235,22 +235,22 @@ miss_var_summary(baked.test)
 ```
 
 ### sanity check: nom vars - distribution: viz
-```{r fig.width = 12, fig.height = 9}
+```{r}
 juiced.train %>% select(where(is.factor)) %>% DataExplorer::plot_bar()
 ```
 
 ### sanity check: num vars - distribution: viz
-```{r fig.width = 12, fig.height = 9}
+```{r}
 juiced.train %>% select(where(is.numeric)) %>% DataExplorer::plot_histogram()
 ```
 
 ### distribution: viz
-```{r fig.width=12, fig.height=9}
+```{r}
 juiced.train %>% select(where(is.numeric)) %>% DataExplorer::plot_boxplot(by = 'sale_price')
 ```
 
 ### sanity check: num vars - pairwise correlations: viz
-```{r fig.width= 20, fig.height= 20, cache= TRUE, eval=FALSE}
+```{r cache= TRUE, eval=FALSE}
 GGally::ggcorr(juiced.train %>% select(where(is.numeric)), low = '#990000', mid = '#E0E0E0', high = '#009900', label = TRUE)
 
 ```
@@ -258,7 +258,7 @@ GGally::ggcorr(juiced.train %>% select(where(is.numeric)), low = '#990000', mid 
 # Simple Modeling
 
 ## Random Forest: Modeling and Assessment
-```{r fig.width=12, fig.height=9}
+```{r}
 #!!<NOTE> to analyze var importance, you need an importance arg
 # The 'impurity_corrected' importance measure is unbiased in terms of the number of categories and category frequencies and is almost as fast as the standard impurity importance. 
 model.rf = ranger::ranger(log10(sale_price) ~ . , data = juiced.train, num.trees = 300, importance = 'impurity_corrected')
@@ -380,7 +380,7 @@ N = 50
 ```
 
 ### Random Forest Modeling and Assessment: High Important Vars Only
-```{r fig.width=12, fig.height=9}
+```{r}
 #filter data to top `r  N ` important vars
 juiced.train.filt.imp.vars = juiced.train %>% select(sale_price, model.rf.var.imp.topN$var)
 
