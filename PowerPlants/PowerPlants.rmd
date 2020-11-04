@@ -23,7 +23,7 @@ output:
 
 <style>
     body .main-container {
-        max-width: 500px;
+        max-width: 1000px;
     }
 </style>
 

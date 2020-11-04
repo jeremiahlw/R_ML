@@ -1,0 +1,103 @@
+---
+title: "XXX"
+author: 'Jeremiah Wang'
+date: "format(Sys.Date(), '%B %d %Y')"
+output:
+  html_document:
+    theme: simplex
+    highlight: breezedark
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+ 
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+
+library(caret);library(tidymodels);library(h2o)
+
+library(modeldata) #used for learning tidymodels
+```
+
+# Resource
+
+* https://www.tmwr.org/ames.html
+
+# BASICS
+# Chapter 4: The Ames housing data
+```{r}
+data('ames');a = ames
+
+a = a %>%
+  clean_names() %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.character),
+    where(is.factor),
+    where(is.numeric)
+    )
+
+a %>% head %>% DT::datatable()
+```
+
+## 4.1 exploring important features
+
+distribution of outcome var, sale price
+```{r}
+a %>% plot_ly(x = ~sale_price) %>% add_boxplot()
+a %>% plot_ly(x = ~sale_price) %>% add_histogram()
+```
+<h style="color: blue; font-size:12px;">right skewed; we should log transform</h>
+
+```{r}
+ggplotly(a %>% ggplot(aes(sale_price)) + geom_histogram(bins = 50) + scale_x_log10())
+```
+
+```{r}
+a$sale_price = log10(a$sale_price)
+```
+
+
+<h style="color: green; font-size:12px;">transforming the output var will probably result in better models than using the untransformed data.</h>
+
+<h style="color: red; font-size:12px;">The downside to transforming the outcome is mostly related to interpretation.</h>
+
+# Chapter 5: Spending[Splitting] our data
+
+## 5.1 common methods for splitting data
+```{r}
+set.seed(123)
+
+(split = a %>% initial_split(prob = 0.8, strata = sale_price))
+
+train = training(split)
+test = testing(split)
+
+```
+
+# Chapter 6: Feature engineering with recipes
+# Chapter 7: Fitting models with parsnip
+# Chapter 8: A model workflow
+# Chapter 9: Judging model effectiveness
+# TOOLS: FOR CREATING EFFECTIVE MODELS
+# Chapter 10: Resampling for evaluating performance
+# Chapter 11: Comparing models with resampling
+# Chapter 12: Model tuning and the dangers of overfitting
+# Chapter 13: Grid search
+# Chapter 14: Iterative search
+# Chapter 15: Explaining models and predictions

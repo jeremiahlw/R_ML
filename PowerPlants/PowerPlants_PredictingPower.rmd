@@ -1,0 +1,319 @@
+---
+title: "Power Plants - Predicting Power"
+author: 'Jeremiah W'
+date: "November 2020"
+output:
+  rmdformats::readthedown:
+    code_folding: hide
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+---
+
+
+# MISC
+
+```{r eval=FALSE}
+# regarding 'readthedown' theme
+# https://cran.r-project.org/web/packages/rmdformats/vignettes/introduction.html
+```
+
+<style>
+    body .main-container {
+        max-width: 1000px;
+    }
+</style>
+
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+
+library(caret);library(tidymodels);library(prophet)
+
+library(rmdformats)
+```
+
+# Introduction
+
+[Check out this Kaggle](https://www.kaggle.com/anikannal/solar-power-generation-data)
+
+*This data has been gathered at two solar power plants in India over a 34 day period. It has two pairs of files - each pair has one power generation dataset and one sensor readings dataset. The power generation datasets are gathered at the inverter level - each inverter has multiple lines of solar panels attached to it. The sensor data is gathered at a plant level - single array of sensors optimally placed at the plant.*
+
+## Business Need
+
+**Can we predict the power generation for next couple of days? This will help with better grid management**
+
+## Statistical Method
+
+* facebook time-series PROPHET modeling
+    1. at the aggregate plant level (all inverters)
+    2. at the individual inverter level, and then rollup (aggregate sum) to power plant level**
+    
+# Power Generation Inverter data set: Plant 1
+
+## Get and Clean Data
+
+```{r message=FALSE}
+
+p1.gd = read_csv('Plant_1_Generation_Data.csv') %>%
+  slice_sample(prop = 1) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
+  clean_names() %>%  #lowercase
+  select(sort(tidyselect::peek_vars())) %>% #sort cols alphabetically
+  select(where(is.factor),where(is.character),where(is.numeric)) #sort cols by data type
+
+#OlsonNames()
+#https://stackoverflow.com/questions/41479008/what-is-the-correct-tz-database-time-zone-for-india
+
+p1.gd = p1.gd %>% mutate(
+  date_time = as.POSIXct(strptime(p1.gd$date_time, "%d-%m-%Y %H:%M"), tz = 'Asia/Kolkata'),
+  source_key = factor(p1.gd$source_key)
+) %>% rename(inverter = source_key) %>% 
+  arrange(date_time)
+
+p1.gd$plant_id = NULL
+
+```
+
+### sample rows
+
+```{r}
+p1.gd %>% slice_sample(n = 10) %>% DT::datatable()
+```
+
+### glimpse structure
+```{r}
+p1.gd %>% glimpse()
+```
+
+### check missing values
+```{r}
+p1.gd %>% miss_var_summary()
+```
+
+## EDA
+
+### counts of each factor's unique levels
+
+```{r}
+sapply(p1.gd %>% select(where(is.factor)), n_unique) %>% as.data.frame()
+```
+
+### reference: names of unique levels
+```{r}
+sapply(p1.gd %>% select(where(is.factor)), unique) %>% as.data.frame() %>% arrange()
+```
+
+### time series/anomoly Plot
+
+<h style="color: blue; font-size:12px;">**for better visibility, right click and open in new tab**</h>
+
+```{r warning=FALSE, message=FALSE, fig.width=12, fig.height= 48}
+library(anomalize)
+# anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
+
+# alpha: Controls the width of the "normal" range. Lower values are more conservative while higher values are less prone to incorrectly classifying "normal" observations.
+# max_anoms: The maximum percent of anomalies permitted to be identified.
+
+p1.gd.anomalize = p1.gd %>% arrange(date_time) %>% 
+  mutate(inverter = fct_reorder(inverter, -daily_yield)) %>% 
+  group_by(inverter) %>%
+  time_decompose(daily_yield, method = 'twitter', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
+  time_recompose()
+
+  p1.gd.anomalize %>%
+    plot_anomalies(
+      ncol = 1,
+      alpha_dots = 0.5,
+      alpha_circles = 0.5,
+      size_circles = 1.5,
+      time_recomposed = TRUE,
+      alpha_ribbon = 0.05
+      ) + scale_y_continuous(labels = comma) +
+    labs(x = '', y = 'daily_yield', title = 'daily_yield')
+```
+
+<h style="color: red; font-size:18px;">**bvBOhCH3iADSZry** still has a few outliers after June 01, but its overall individual contribution shouldn't mess up aggregate predictions'</h>
+
+### finalizing Data Set
+```{r eval=FALSE}
+p1.gd = p1.gd %>% filter(date_time >= '2020-06-01 00:00:00 IST')
+```
+<h style="color: blue; font-size:12px;">NOTE: Initially, I had filtered the data to use just clean history with no anomalies, but ultimately decided against this for two reasons.  First, there wasn't enough history.  Second, prophet does a fabulous job of ignoring outliers'</h>
+
+# Forecasting at the Aggregate Level
+
+### aggregating total power at the daily level
+```{r}
+p1.agg = p1.gd %>% group_by(date_time) %>% summarise(daily_yield = sum(daily_yield), .groups = 'drop')
+p1.agg %>% plot_ly(x = ~date_time, y = ~daily_yield) %>% add_lines() %>% layout(title = 'Plant 1 daily_yield KW')
+
+```
+
+### Create Model
+```{r fig.width = 12}
+#renaming cols to prophet's col conventions
+p1.agg = p1.agg %>% select(ds = date_time, y = daily_yield)
+
+#creating model
+p1.agg.model = p1.agg %>% prophet()
+
+#using model make future period df
+p1.agg.future = p1.agg.model %>% make_future_dataframe(
+  periods = 96 * 7,
+  freq = 15 * 60) # data is at the 15 minute interval, so to get 30 days, we need to multiple by the number of 15 minute intervals in one day, 96 intervals
+
+#make forecasts df
+p1.agg.forecast = p1.agg.model %>% predict(p1.agg.future)
+
+#plot forecast
+p1.agg.model %>% dyplot.prophet(p1.agg.forecast)
+
+#plot forecast components
+p1.agg.model %>% prophet_plot_components(p1.agg.forecast)
+
+```
+
+```{r}
+
+```
+
+
+# Power Generation Inverter data set: Plant 2
+
+## Get and Clean Data
+
+```{r message=FALSE}
+
+p2.gd = read_csv('Plant_2_Generation_Data.csv') %>%
+  slice_sample(prop = 1) %>% #!!<NOTE>temp, working with a sample of datset for speed purposes
+  clean_names() %>%  #lowercase
+  select(sort(tidyselect::peek_vars())) %>% #sort cols alphabetically
+  select(where(is.POSIXct), where(is.factor),where(is.character),where(is.numeric)) #sort cols by data type
+
+#OlsonNames()
+#https://stackoverflow.com/questions/41479008/what-is-the-correct-tz-database-time-zone-for-india
+
+p2.gd = p2.gd %>% mutate(
+  #date_time = as.POSIXct(strptime(p2.gd$date_time, "%d-%m-%Y %H:%M"), tz = 'Asia/Kolkata'),
+  source_key = factor(p2.gd$source_key)
+) %>% rename(inverter = source_key) %>% 
+  arrange(date_time)
+
+p2.gd$plant_id = NULL
+
+```
+
+### sample rows
+
+```{r}
+p2.gd %>% slice_sample(n = 10) %>% DT::datatable()
+```
+
+### glimpse structure
+```{r}
+p2.gd %>% glimpse()
+```
+
+### check missing values
+```{r}
+p2.gd %>% miss_var_summary()
+```
+
+## EDA
+
+### counts of each factor's unique levels
+
+```{r}
+sapply(p2.gd %>% select(where(is.factor)), n_unique) %>% as.data.frame()
+```
+
+### reference: names of unique levels
+```{r}
+sapply(p2.gd %>% select(where(is.factor)), unique) %>% as.data.frame() %>% arrange()
+```
+
+### time series/anomoly Plot
+
+<h style="color: blue; font-size:12px;">**for better visibility, right click and open in new tab**</h>
+
+```{r warning=FALSE, message=FALSE, fig.width=12, fig.height= 48}
+library(anomalize)
+# anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
+
+# alpha: Controls the width of the "normal" range. Lower values are more conservative while higher values are less prone to incorrectly classifying "normal" observations.
+# max_anoms: The maximum percent of anomalies permitted to be identified.
+
+p2.gd.anomalize = p2.gd %>% arrange(date_time) %>% 
+  mutate(inverter = fct_reorder(inverter, -daily_yield)) %>% 
+  group_by(inverter) %>%
+  time_decompose(daily_yield, method = 'twitter', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.05, method = 'gesd') %>%
+  time_recompose()
+
+  p2.gd.anomalize %>%
+    plot_anomalies(
+      ncol = 1,
+      alpha_dots = 0.5,
+      alpha_circles = 0.5,
+      size_circles = 1.5,
+      time_recomposed = TRUE,
+      alpha_ribbon = 0.05
+      ) + scale_y_continuous(labels = comma) +
+    labs(x = '', y = 'daily_yield', title = 'daily_yield')
+```
+
+<h style="color: red; font-size:18px;">Perhaps it'd be a better idea to calculate the aggregate excluding the 4 inverters that were not operating from late May to end of May.'</h>
+
+### finalizing Data Set
+```{r eval=FALSE}
+p2.gd = p2.gd %>% filter(date_time >= '2020-06-01 00:00:00 IST')
+```
+<h style="color: blue; font-size:12px;">NOTE: Initially, I had filtered the data to use just clean history with no anomalies, but ultimately decided against this for two reasons.  First, there wasn't enough history.  Second, prophet does a fabulous job of ignoring outliers'</h>
+
+# Forecasting at the Aggregate Level
+
+### aggregating total power at the daily level
+```{r}
+p2.agg = p2.gd %>% group_by(date_time) %>% summarise(daily_yield = sum(daily_yield), .groups = 'drop')
+p2.agg %>% plot_ly(x = ~date_time, y = ~daily_yield) %>% add_lines() %>% layout(title = 'Plant 2 daily_yield KW')
+
+```
+
+### Create Model
+```{r fig.width = 12}
+#renaming cols to prophet's col conventions
+p2.agg = p2.agg %>% select(ds = date_time, y = daily_yield)
+
+#creating model
+p2.agg.model = p2.agg %>% prophet()
+
+#using model make future period df
+p2.agg.future = p2.agg.model %>% make_future_dataframe(
+  periods = 96 * 7,
+  freq = 15 * 60) # data is at the 15 minute interval, so to get 30 days, we need to multiple by the number of 15 minute intervals in one day, 96 intervals
+
+#make forecasts df
+p2.agg.forecast = p2.agg.model %>% predict(p2.agg.future)
+
+#plot forecast
+p2.agg.model %>% dyplot.prophet(p2.agg.forecast)
+
+#plot forecast components
+p2.agg.model %>% prophet_plot_components(p2.agg.forecast)
+
+```
+
+```{r}
+
+```
+
