@@ -12,7 +12,6 @@ output:
     highlight: tango
 ---
 
-
 # MISC
 
 ```{r eval=FALSE}
@@ -39,7 +38,7 @@ library(skimr);library(tidyverse);library(scales)
 
 library(caret);library(tidymodels);library(prophet)
 
-library(rmdformats)
+library(rmdformats);library(tufte)
 ```
 
 # Introduction
@@ -116,7 +115,7 @@ sapply(p1.gd %>% select(where(is.factor)), unique) %>% as.data.frame() %>% arran
 
 <h style="color: blue; font-size:12px;">**for better visibility, right click and open in new tab**</h>
 
-```{r warning=FALSE, message=FALSE, fig.width=12, fig.height= 48}
+```{r warning=FALSE, message=FALSE, fig.width=7, fig.height= 35, cache=TRUE, eval=TRUE}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
@@ -148,19 +147,19 @@ p1.gd.anomalize = p1.gd %>% arrange(date_time) %>%
 ```{r eval=FALSE}
 p1.gd = p1.gd %>% filter(date_time >= '2020-06-01 00:00:00 IST')
 ```
-<h style="color: blue; font-size:12px;">NOTE: Initially, I had filtered the data to use just clean history with no anomalies, but ultimately decided against this for two reasons.  First, there wasn't enough history.  Second, prophet does a fabulous job of ignoring outliers'</h>
+<h style="color: blue; font-size:12px;">NOTE: Initially, I had filtered the data to use just clean history with no anomalies, but ultimately decided against this for two reasons.  First, I wanted to give as much history as possible since the total history is relatively short.  Second, prophet does a fabulous job of ignoring outliers'</h>
 
 # Forecasting at the Aggregate Level
 
 ### aggregating total power at the daily level
 ```{r}
 p1.agg = p1.gd %>% group_by(date_time) %>% summarise(daily_yield = sum(daily_yield), .groups = 'drop')
-p1.agg %>% plot_ly(x = ~date_time, y = ~daily_yield) %>% add_lines() %>% layout(title = 'Plant 1 daily_yield KW')
+p1.agg %>% plot_ly(x = ~date_time, y = ~daily_yield) %>% add_lines() %>% layout(title = 'Plant 1 total daily_yield KW')
 
 ```
 
 ### Create Model
-```{r fig.width = 12}
+```{r fig.width = 12, message=FALSE}
 #renaming cols to prophet's col conventions
 p1.agg = p1.agg %>% select(ds = date_time, y = daily_yield)
 
@@ -169,8 +168,8 @@ p1.agg.model = p1.agg %>% prophet()
 
 #using model make future period df
 p1.agg.future = p1.agg.model %>% make_future_dataframe(
-  periods = 96 * 7,
-  freq = 15 * 60) # data is at the 15 minute interval, so to get 30 days, we need to multiple by the number of 15 minute intervals in one day, 96 intervals
+  periods = 96 * 7, #there are 96 fifteen mintue periods in one day, so this represents 7 days
+  freq = 15 * 60) # data is at the 15 minute frequency level (freq is in seconds)
 
 #make forecasts df
 p1.agg.forecast = p1.agg.model %>% predict(p1.agg.future)
@@ -246,7 +245,7 @@ sapply(p2.gd %>% select(where(is.factor)), unique) %>% as.data.frame() %>% arran
 
 <h style="color: blue; font-size:12px;">**for better visibility, right click and open in new tab**</h>
 
-```{r warning=FALSE, message=FALSE, fig.width=12, fig.height= 48}
+```{r warning=FALSE, message=FALSE, fig.width=7, fig.height= 35, cache=TRUE, eval=TRUE}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
@@ -272,44 +271,101 @@ p2.gd.anomalize = p2.gd %>% arrange(date_time) %>%
     labs(x = '', y = 'daily_yield', title = 'daily_yield')
 ```
 
-<h style="color: red; font-size:18px;">Perhaps it'd be a better idea to calculate the aggregate excluding the 4 inverters that were not operating from late May to end of May.'</h>
+<h style="color: red; font-size:18px;">It's a good idea to calculate the aggregate excluding the 4 inverters that were not operating from late May to end of May.  We should forecast them separately'</h>
 
-### finalizing Data Set
-```{r eval=FALSE}
-p2.gd = p2.gd %>% filter(date_time >= '2020-06-01 00:00:00 IST')
+### identify the 4 faulty inverters
+```{r}
+p2.gd %>% count(inverter) %>% arrange(n) %>% head(4)
+p2.faulty.inverters = p2.gd %>% count(inverter) %>% arrange(n) %>% head(4) %>% select(inverter) %>% pull %>% as.character
+
 ```
-<h style="color: blue; font-size:12px;">NOTE: Initially, I had filtered the data to use just clean history with no anomalies, but ultimately decided against this for two reasons.  First, there wasn't enough history.  Second, prophet does a fabulous job of ignoring outliers'</h>
 
-# Forecasting at the Aggregate Level
+1. 'good' inverters (NON-faulty inverters that didn't have complete shutdowns)
+2. 'bad' inverters (FAULTY inverters that had complete shutdowns)
+
+
+### finalizing Data Sets
+```{r}
+#filter to only good inverters
+p2.gd.good = p2.gd %>% filter(!inverter %in% p2.faulty.inverters)
+
+#filter to only bad inverters
+p2.gd.bad = p2.gd %>% filter(inverter %in% p2.faulty.inverters)
+```
+<h style="color: blue; font-size:12px;">NOTE: Initially, I had filtered the data to use just clean history with no anomalies, but ultimately decided against this for two reasons.  First, I wanted to give as much history as possible since the total history is relatively short.  Second, prophet does a fabulous job of ignoring outliers'</h>
+
+# Forecasting at the Aggregate Level for 'good' inverters
 
 ### aggregating total power at the daily level
 ```{r}
-p2.agg = p2.gd %>% group_by(date_time) %>% summarise(daily_yield = sum(daily_yield), .groups = 'drop')
-p2.agg %>% plot_ly(x = ~date_time, y = ~daily_yield) %>% add_lines() %>% layout(title = 'Plant 2 daily_yield KW')
+p2.agg.good = p2.gd.good %>% group_by(date_time) %>% summarise(daily_yield = sum(daily_yield), .groups = 'drop')
+p2.agg.good %>% plot_ly(x = ~date_time, y = ~daily_yield, color = I('black')) %>% add_lines() %>% layout(title = 'Plant 2 good inverters total daily_yield KW')
 
 ```
 
 ### Create Model
-```{r fig.width = 12}
+```{r}
 #renaming cols to prophet's col conventions
-p2.agg = p2.agg %>% select(ds = date_time, y = daily_yield)
+p2.agg.good = p2.agg.good %>% select(ds = date_time, y = daily_yield)
 
 #creating model
-p2.agg.model = p2.agg %>% prophet()
+p2.agg.good.model = p2.agg.good %>% prophet()
 
 #using model make future period df
-p2.agg.future = p2.agg.model %>% make_future_dataframe(
-  periods = 96 * 7,
-  freq = 15 * 60) # data is at the 15 minute interval, so to get 30 days, we need to multiple by the number of 15 minute intervals in one day, 96 intervals
+p2.agg.good.future = p2.agg.good.model %>% make_future_dataframe(
+  periods = 96 * 7, #there are 96 fifteen mintue periods in one day, so this represents 7 days
+  freq = 15 * 60,
+  include_history = TRUE
+  ) # data is at the 15 minute frequency level (freq is in seconds)
 
 #make forecasts df
-p2.agg.forecast = p2.agg.model %>% predict(p2.agg.future)
+p2.agg.good.forecast = p2.agg.good.model %>% predict(p2.agg.good.future)
+
+p2.agg.good.forecast %>% head %>% DT::datatable()
 
 #plot forecast
-p2.agg.model %>% dyplot.prophet(p2.agg.forecast)
+p2.agg.good.model %>% dyplot.prophet(p2.agg.good.forecast)
 
 #plot forecast components
-p2.agg.model %>% prophet_plot_components(p2.agg.forecast)
+p2.agg.good.model %>% prophet_plot_components(p2.agg.good.forecast)
+
+```
+
+# Forecasting at the Aggregate Level for 'bad' inverters
+
+### aggregating total power at the daily level
+```{r}
+p2.agg.bad = p2.gd.bad %>% group_by(date_time) %>% summarise(daily_yield = sum(daily_yield), .groups = 'drop')
+p2.agg.bad %>% plot_ly(x = ~date_time, y = ~daily_yield, color = I('darkorange')) %>% add_lines() %>% layout(title = 'Plant 2 bad inverters total daily_yield KW')
+```
+
+<h style="color: blue; font-size:12px;">For the aggregate bad inverter dataset (p2.agg.bad) ONLY, let's exclude the 'breakdown period' and provide only history from May 31st when training the model</h>
+
+### Create Model
+```{r message=FALSE}
+#renaming cols to prophet's col conventions
+p2.agg.bad = p2.agg.bad %>% filter(date_time >= '2020-05-31 UTC') %>% select(ds = date_time, y = daily_yield) 
+
+#creating model
+p2.agg.bad.model = p2.agg.bad %>% prophet()
+
+#using model make future period df
+p2.agg.bad.future = p2.agg.bad.model %>% make_future_dataframe(
+  periods = 96 * 7, #there are 96 fifteen mintue periods in one day, so this represents 7 days
+  freq = 15 * 60,
+  include_history = TRUE
+  ) # data is at the 15 minute frequency level (freq is in seconds)
+
+#make forecasts df
+p2.agg.bad.forecast = p2.agg.bad.model %>% predict(p2.agg.bad.future)
+
+p2.agg.bad.forecast %>% head %>% DT::datatable()
+
+#plot forecast
+p2.agg.bad.model %>% dyplot.prophet(p2.agg.bad.forecast) %>% dygraphs::dyOptions(colors = c('darkorange','blue'))
+
+#plot forecast components
+p2.agg.bad.model %>% prophet_plot_components(p2.agg.bad.forecast)
 
 ```
 
