@@ -1,0 +1,279 @@
+---
+title: "Exploring and Predicting Crime in Washington DC"
+author: 'Jeremiah Wang'
+date: "November 2020"
+output:
+html_document:
+  theme: cerulean
+  code_folding: hide
+  toc: yes
+  toc_float:
+  collapsed: no
+  smooth_scroll: no
+  toc_depth: 2
+  df_print: paged
+---
+
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+```
+
+# Intro
+[Check out this Kaggle](https://www.kaggle.com/vinchinzu/dc-metro-crime-data)
+
+# Mission: Understand crime in WDC by exploring data at both macro and micro levels, and then make predictions.
+
+# Goals
+1. Find total offenses by each factor group
+    + Historically
+    + Latest Year 2017
+2. Find total offenses by each offense type/ward group
+    + Historically
+    + Latest Year 2017
+3. Trend over time (last 3 years)
+    + total offenses
+    + total offenses by type
+    + total offenses by type/ward
+4. Predict total offenses for the next 2 weeks
+5. Predict total offenses by type for the next 2 weeks
+6. Create Geographic Maps
+    + by offense type
+      + by last 3 available years
+
+# Get Data
+```{r}
+a = read_csv('raw.csv') %>% 
+  clean_names() %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    report_dat,
+    month, day, year, hour, minute, second,
+    where(is.Date),
+    where(is.character),
+    where(is.factor),
+    where(is.numeric)
+  ) %>% slice_sample(prop = 0.05) #work with 5% of dataset for now
+```
+
+# Notes
+
+1. rmarkdown variable for filtering entire doc to specific year
+
+# Resources
+
+1. DC Wards
+    + https://dc.curbed.com/maps/dc-council-eight-wards-map-elections-neighborhoods
+2. 
+
+### sample data
+```{r}
+a %>% sample_n(10)
+```
+
+### counts of unique levels
+```{r}
+a %>% map_df(n_unique)
+```
+
+### clean data
+```{r}
+#remove unused cols
+a = a %>% select(!c(minute, second, anc, block, block_group, end_date, ew, neighborhood_cluster, ns, start_date, voting_precinct, ccn, district, x, x1)) %>%
+  mutate(
+    report_dat = anytime::anydate(report_dat),
+    #start_date = anytime::anydate(start_date),
+    #end_date = anytime::anydate(end_date),
+    across(where(is.character), factor),
+    census_tract = factor(census_tract, levels = a$census_tract %>% unique %>% sort),
+    ward = factor(ward, levels = a$ward %>% unique %>% sort),
+    psa = factor(psa, levels = a$psa %>% unique %>% sort),
+    year = factor(year, levels = a$year %>% unique %>% sort),
+    month = factor(month, levels = a$month %>% unique %>% sort),
+    day = factor(day, levels = a$day %>% unique %>% sort),
+    hour = factor(hour, levels = a$hour %>% unique %>% sort)
+    ) %>%
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    month, day, year, hour,
+    where(is.character),
+    where(is.factor),
+    where(is.numeric) 
+    ) %>% arrange(report_dat, crimetype, offense)
+    
+abak = a
+#a = abak
+```
+
+Notes
+
+1. If we wanted to do more detailed geographic analysis, we might want to include block and block group
+2. psa = police service area
+    + https://mpdc.dc.gov/page/police-districts-and-police-service-areas
+
+# EDA: factor vars
+
+### sample data
+```{r}
+a %>% select(where(is.factor)) %>% sample_n(10)
+```
+
+### glimpse structure
+```{r}
+a %>% select(where(is.factor)) %>% glimpse
+```
+
+### check missing values
+```{r}
+a %>% select(where(is.factor)) %>% miss_var_summary
+```
+
+<h style="color: blue; font-size:12px;">With so little data missing, I feel comfortable omitting rows with NAs</h>
+```{r}
+a = a %>% na.omit()
+```
+
+
+### distribution of level counts per factor
+```{r}
+#defining custom color palette
+jpal = grDevices::colorRampPalette(brewer.pal(8,'Set3'))(25)
+
+a %>% select(where(is.factor)) %>% map_df(n_unique)
+
+a %>% select(where(is.factor)) %>%
+  map_df(n_unique) %>%
+  pivot_longer(. , everything(), 'features') %>%
+  plot_ly(x = ~features, y = ~value, color = ~features, colors = jpal) %>% 
+  add_bars()
+```
+### reference: names of unique levels
+```{r}
+a %>% select(where(is.factor)) %>% map(unique)
+```
+
+## Goal 1. Find total offenses by each factor group X
+
+### Historically
+```{r fig.width= 10}
+a %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 2, title = 'Total Offenses by Category - Historic')
+```
+
+Observations:
+
+1. More crime occurs in the summer (top 3 months: July, August, June) ??
+2. More crime occurs towards the end of the month ??
+3. More crime occurs towards the end of the month (top 3 months: July, August, June)
+4. Non-violent crime occur ~4x as much as violent crime
+5. Theft is, by far, the most common offense
+    + auto-theft is so predominant it has its own category
+6. There is significantly more crime that occurs in the Northeast than other quads
+    + OR... we collect data more accurately/frequently for this quad?
+7. Ward 2 is the most dangerous ward
+    + OR... we collect data more accurately/frequently for this ward?
+
+
+### Latest Year 2017
+```{r fig.width= 10}
+a %>% filter(year == 2017) %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 2, title = 'Total Offenses by Category - 2017')
+```
+
+Observations relative to Historic
+
+1. 
+2. 
+3. 
+
+1. Proportion of Violent cases decreased
+
+## Goal 2. Find total offenses by each offense type/ward group
+
+### Historically
+```{r}
+ggplotly(
+  a %>% count(ward, offense) %>% ggplot(aes(x = offense, y = n, fill = offense)) +
+    geom_col() +
+    coord_flip() +
+    labs(x = '', y = 'count', title = 'Total Offenses by Type/Ward - Historic') +
+    facet_wrap(~ward) +
+    theme(legend.position = 'none')
+)
+```
+
+Observations:
+
+1. Ward 2 has the greatest number of cases as observed above, but this is disproportionately composed of mostly theft/other offenses
+    + the offense count of its second largest offense category, theft/auto, is even slightly less than that of Ward 1's'
+2. Ward 7 has a relatively high proportion of motor vehicle theft offenses    
+3. Ward 8 has a relatively high proportion of burglary offenses
+
+### Latest Year 2017
+```{r}
+ggplotly(
+  a %>% filter(year == 2017) %>% 
+    count(ward, offense) %>% ggplot(aes(x = offense, y = n, fill = offense)) +
+    geom_col() +
+    coord_flip() +
+    labs(x = '', y = 'count', title = 'Total Offenses by Type/Ward - 2017') +
+    facet_wrap(~ward) +
+    theme(legend.position = 'none')
+)
+```
+
+Observations relative to Historic
+
+1. 
+2. 
+3. 
+
+## Goal 3. Trend over time (last 3 years)
+
+
+
+# EDA: num vars
+
+### sample data
+```{r}
+a %>% select(where(is.numeric)) %>% sample_n(10)
+```
+
+### glimpse structure
+```{r}
+a %>% select(where(is.numeric)) %>% glimpse
+```
+
+### check missing values
+```{r}
+a %>% select(where(is.numeric)) %>% miss_var_summary
+```
+
+### quick map
+```{r}
+a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~ward) %>% add_markers() %>% layout(title = 'WDC Wards') %>% hide_legend()
+a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~census_tract) %>% add_markers() %>% layout(title = 'WDC Wards Census Tracts') %>% hide_legend()
+```
+
+# EDA answering Goals 1, 2, 3
+
+##
+
+# Predict Total Offenses for the next Week
+
+# Predict Total Offenses for the next Week by Type
+
+# Time Series by Offense Type
+
+# Leaflet
+
+# Preprocessing
+# Simple Modeling
+# Complex Modeling
+# Auto Modeling
