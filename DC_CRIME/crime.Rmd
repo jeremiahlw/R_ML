@@ -1,17 +1,18 @@
 ---
 title: "Exploring and Predicting Crime in Washington DC"
-author: 'Jeremiah Wang'
-date: "November 2020"
+subtitle: "Data History from Jan 1, 2012 to November 2, 2017"
+author: 'Jeremiah Wang, November 2020'
 output:
-html_document:
-  theme: cerulean
-  code_folding: hide
-  toc: yes
-  toc_float:
-  collapsed: no
-  smooth_scroll: no
-  toc_depth: 2
-  df_print: paged
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
 ---
 
 ```{r include=FALSE}
@@ -29,7 +30,9 @@ library(skimr);library(tidyverse);library(scales)
 # Intro
 [Check out this Kaggle](https://www.kaggle.com/vinchinzu/dc-metro-crime-data)
 
-# Mission: Understand crime in WDC by exploring data at both macro and micro levels, and then make predictions.
+# Objective
+
+* Understand crime in WDC by exploring data at both macro and micro levels, and then make predictions.
 
 # Goals
 1. Find total offenses by each factor group
@@ -41,15 +44,13 @@ library(skimr);library(tidyverse);library(scales)
 3. Trend over time (last 3 years)
     + total offenses
     + total offenses by type
-    + total offenses by type/ward
-4. Predict total offenses for the next 2 weeks
-5. Predict total offenses by type for the next 2 weeks
-6. Create Geographic Maps
+4. Predict total offenses for the next 4 weeks
+5. Create Geographic Maps
     + by offense type
       + by last 3 available years
 
 # Get Data
-```{r}
+```{r warning=FALSE, message=FALSE}
 a = read_csv('raw.csv') %>% 
   clean_names() %>% 
   select(sort(tidyselect::peek_vars())) %>% 
@@ -60,7 +61,7 @@ a = read_csv('raw.csv') %>%
     where(is.character),
     where(is.factor),
     where(is.numeric)
-  ) %>% slice_sample(prop = 0.05) #work with 5% of dataset for now
+  ) %>% slice_sample(prop = 1) #work with 5% of dataset for now
 ```
 
 # Notes
@@ -77,6 +78,10 @@ a = read_csv('raw.csv') %>%
 ```{r}
 a %>% sample_n(10)
 ```
+### glimpse structure
+```{r}
+a %>% glimpse
+```
 
 ### counts of unique levels
 ```{r}
@@ -84,7 +89,7 @@ a %>% map_df(n_unique)
 ```
 
 ### clean data
-```{r}
+```{r eval=FALSE}
 #remove unused cols
 a = a %>% select(!c(minute, second, anc, block, block_group, end_date, ew, neighborhood_cluster, ns, start_date, voting_precinct, ccn, district, x, x1)) %>%
   mutate(
@@ -110,8 +115,16 @@ a = a %>% select(!c(minute, second, anc, block, block_group, end_date, ew, neigh
     ) %>% arrange(report_dat, crimetype, offense)
     
 abak = a
+#saveRDS(abak, 'cleaned_data_10yrs.RDS')
 #a = abak
 ```
+
+```{r include=FALSE}
+a = readRDS('cleaned_data_10yrs.RDS')
+#filter to ~5 years of data
+a = a %>% filter(report_dat >= '2012-01-01')
+```
+
 
 Notes
 
@@ -143,9 +156,9 @@ a = a %>% na.omit()
 
 
 ### distribution of level counts per factor
-```{r}
+```{r out.width = 1000, warning=FALSE}
 #defining custom color palette
-jpal = grDevices::colorRampPalette(brewer.pal(8,'Set3'))(25)
+jpal = grDevices::colorRampPalette(brewer.pal(8,'Dark2'))(25)
 
 a %>% select(where(is.factor)) %>% map_df(n_unique)
 
@@ -153,8 +166,11 @@ a %>% select(where(is.factor)) %>%
   map_df(n_unique) %>%
   pivot_longer(. , everything(), 'features') %>%
   plot_ly(x = ~features, y = ~value, color = ~features, colors = jpal) %>% 
-  add_bars()
+  add_bars() %>%
+  layout(title = 'Unique Level Counts per Factor')
+  
 ```
+
 ### reference: names of unique levels
 ```{r}
 a %>% select(where(is.factor)) %>% map(unique)
@@ -162,44 +178,44 @@ a %>% select(where(is.factor)) %>% map(unique)
 
 ## Goal 1. Find total offenses by each factor group X
 
-### Historically
+### Historically (2012 - 2016)
 ```{r fig.width= 10}
-a %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 2, title = 'Total Offenses by Category - Historic')
+a %>% filter(year != 2017) %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 1, title = 'Total Offenses by Category - Historic')
 ```
 
 Observations:
 
-1. More crime occurs in the summer (top 3 months: July, August, June) ??
-2. More crime occurs towards the end of the month ??
-3. More crime occurs towards the end of the month (top 3 months: July, August, June)
-4. Non-violent crime occur ~4x as much as violent crime
+1. Most offenses occurs late summer to early fall (top 3 months: Oct, July, Aug)
+2. More offenses occurs towards the latter half the month (>= Day 16)
+3. More offenses occurs towards the end of the month (top 3 months: July, August, June)
+4. Non-violent offenses occur ~4.5 x as much as violent offenses
 5. Theft is, by far, the most common offense
-    + auto-theft is so predominant it has its own category
-6. There is significantly more crime that occurs in the Northeast than other quads
+    + auto-theft is so predominant, it has its own category
+6. The Northeast quad is significantly more dangerous than the other wards
     + OR... we collect data more accurately/frequently for this quad?
-7. Ward 2 is the most dangerous ward
+7. Ward 2 is the most dangerous ward by a good margin
     + OR... we collect data more accurately/frequently for this ward?
 
 
 ### Latest Year 2017
 ```{r fig.width= 10}
-a %>% filter(year == 2017) %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 2, title = 'Total Offenses by Category - 2017')
+a %>% filter(year == 2017) %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 1, title = 'Total Offenses by Category - 2017')
 ```
 
 Observations relative to Historic
 
-1. 
-2. 
-3. 
+1. **January 2017** was atypically more dangerous 
+2. Non-violent offenses make up a greater percent of total offenses, occurring about ~6 x as much as violent offenses
+3. Wards 5 and 7 are more dangerous than they were historically; 6 is safer
 
-1. Proportion of Violent cases decreased
 
 ## Goal 2. Find total offenses by each offense type/ward group
 
-### Historically
-```{r}
+### Historically (2012 - 2016)
+```{r out.width = 1000, warning=FALSE}
 ggplotly(
-  a %>% count(ward, offense) %>% ggplot(aes(x = offense, y = n, fill = offense)) +
+  a %>% filter(year != 2017) %>%
+    count(ward, offense) %>% ggplot(aes(x = offense, y = n, fill = offense)) +
     geom_col() +
     coord_flip() +
     labs(x = '', y = 'count', title = 'Total Offenses by Type/Ward - Historic') +
@@ -210,13 +226,13 @@ ggplotly(
 
 Observations:
 
-1. Ward 2 has the greatest number of cases as observed above, but this is disproportionately composed of mostly theft/other offenses
+1. Ward 2 has the greatest number of cases as observed above, but this is disproportionately **mostly composed of theft/other offenses**
     + the offense count of its second largest offense category, theft/auto, is even slightly less than that of Ward 1's'
 2. Ward 7 has a relatively high proportion of motor vehicle theft offenses    
 3. Ward 8 has a relatively high proportion of burglary offenses
 
 ### Latest Year 2017
-```{r}
+```{r out.width = 1000}
 ggplotly(
   a %>% filter(year == 2017) %>% 
     count(ward, offense) %>% ggplot(aes(x = offense, y = n, fill = offense)) +
@@ -230,12 +246,98 @@ ggplotly(
 
 Observations relative to Historic
 
-1. 
-2. 
-3. 
+1. Ward 2's share of theft f/auto is higher
+2. *Relative to other wards*, Wards 5,6,7 are more dangerous than they were historically
+    + on an *absolute basis*, all wards are less dangerous
+        + see time series graphs below
 
-## Goal 3. Trend over time (last 3 years)
+## Goal 3. Trend over time
 
+```{r}
+# create col for start of month (a 'month' col) used for grouping and graphing
+a = a %>% mutate(
+  monthkey = lubridate::make_datetime(
+    as.numeric(as.character(year)),
+    as.numeric(as.character(month)),
+    1)
+  ) %>% relocate(report_dat, monthkey, everything())
+
+```
+
+
+#Total Offenses over time
+
+### Total Offenses by Month
+```{r out.width = 1000, message=FALSE}
+a %>% group_by(monthkey) %>%
+  summarise(total.offenses = n()) %>%
+  ungroup() %>% 
+  plot_ly(x = ~monthkey, y =~total.offenses) %>%
+  add_lines(size = I(3)) %>% layout(
+  xaxis = list(title = ''),
+  yaxis = list(title = ''),
+  title = 'Total Offenses by Month'
+  )
+```
+
+Observations
+
+1. Crime follows clear seasonality
+    + peaks occurring late summer/early fall
+2. Peaked in mid 2014
+3. Troughed in early 2015
+
+### Total Offenses by Month/Type
+```{r out.width = 1000, message=FALSE}
+ggplotly(
+  a %>% group_by(monthkey, offense)%>%
+    summarise(total.offenses = n()) %>%
+    ungroup() %>%
+    mutate(offense = fct_reorder(offense, total.offenses, .fun = mean)) %>% 
+    ggplot(aes(monthkey, total.offenses, fill = offense)) +
+    geom_area() +
+    labs(title = 'Total Offenses Percentage (#) by Month/Offense Type', x = '', y = '')
+)
+
+ggplotly(
+  a %>% group_by(monthkey, offense)%>%
+    summarise(total.offenses = n()) %>%
+    mutate(total.offenses.pct = total.offenses/sum(total.offenses)) %>% 
+    ungroup() %>% 
+    mutate(offense = fct_reorder(offense, total.offenses, .fun = mean)) %>% 
+    ggplot(aes(monthkey, total.offenses.pct, fill = offense)) +
+    geom_area() +
+    scale_y_continuous(labels = scales::percent) +
+    labs(title = 'Total Offenses Percentage (%) by Month/Offense Type', x = '', y = '')
+)
+```
+
+### Total Offenses by Month/Ward
+```{r out.width = 1000, message=FALSE}
+ggplotly(
+  a %>% group_by(monthkey, ward)%>%
+    summarise(total.offenses = n()) %>%
+    ungroup() %>%
+    mutate(ward = fct_reorder(ward, total.offenses, .fun = mean)) %>% 
+    ggplot(aes(monthkey, total.offenses, fill = ward)) +
+    geom_area() +
+    labs(title = 'Total Offenses Percentage (#) by Month/Ward', x = '', y = '')
+)
+
+ggplotly(
+  a %>% group_by(monthkey, ward)%>%
+    summarise(total.offenses = n()) %>%
+    mutate(total.offenses.pct = total.offenses/sum(total.offenses)) %>% 
+    ungroup() %>% 
+    mutate(ward = fct_reorder(ward, total.offenses, .fun = mean)) %>% 
+    ggplot(aes(monthkey, total.offenses.pct, fill = ward)) +
+    geom_area() +
+    scale_y_continuous(labels = scales::percent) +
+    labs(title = 'Total Offenses Percentage (%) by Month/Ward', x = '', y = '')
+) 
+
+
+```
 
 
 # EDA: num vars
@@ -256,20 +358,92 @@ a %>% select(where(is.numeric)) %>% miss_var_summary
 ```
 
 ### quick map
-```{r}
-a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~ward) %>% add_markers() %>% layout(title = 'WDC Wards') %>% hide_legend()
+```{r out.width = 700, out.height = 500}
+a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~ward) %>% add_markers() %>% layout(title = 'WDC Wards')
 a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~census_tract) %>% add_markers() %>% layout(title = 'WDC Wards Census Tracts') %>% hide_legend()
 ```
 
-# EDA answering Goals 1, 2, 3
+# Anomaly Detection
 
-##
+## Total Offenses by Month
+```{r warning=FALSE, out.height=1000}
+library(anomalize)
+# anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
-# Predict Total Offenses for the next Week
+# alpha: Controls the width of the "normal" range. Lower values are more conservative while higher values are less prone to incorrectly classifying "normal" observations.
 
-# Predict Total Offenses for the next Week by Type
+# max_anoms: The maximum percent of anomalies permitted to be identified.
 
-# Time Series by Offense Type
+a.anomalize = a %>%
+  group_by(monthkey) %>% 
+  summarise(total.offenses = n()) %>%
+  time_decompose(total.offenses, method = 'twitter', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.30, method = 'gesd') %>%
+  time_recompose()
+
+ggplotly(
+a.anomalize %>%
+  filter(monthkey < as.Date('2017-11-01')) %>% 
+  plot_anomalies(
+    ncol = 1,
+    alpha_dots = 0.5,
+    alpha_circles = 0.5,
+    size_circles = 1.5,
+    time_recomposed = TRUE,
+    alpha_ribbon = 0.05
+    ) + scale_y_continuous(labels = comma) +
+  labs(x = '', y = 'total.offenses', title = 'total.offenses')
+)
+```
+
+<h style="color: blue; font-size:12px;">There was statistically high crime activity in November 2014</h>
+<h style="color: blue; font-size:12px;">There was statistically low crime activity in August & September 2017</h>
+
+# Predict Total Offenses for the next 4 Weeks
+
+```{r}
+a %>% count(monthkey, crimetype, name = 'count') %>%
+  select(-monthkey) %>%
+  plot_ly(y = ~crimetype, x = ~count, color = ~crimetype) %>%
+  add_boxplot() %>% 
+  layout(
+    title = 'Daily Crime Cases by Crime Type ',
+    xaxis = list(title ='Roughly 5 Year Distribution'),
+    yaxis = list(title ='')
+    )
+```
+
+
+### Create Model
+```{r fig.width = 12, message=FALSE}
+library(prophet)
+
+#renaming cols to prophet's col conventions
+a.agg = a %>% filter(crimetype == 'Violent') %>% 
+  group_by(report_dat = round_date(report_dat,'day')) %>% 
+  summarise(total.offenses = n()) %>% 
+  select(ds = report_dat, y = total.offenses)
+
+#creating model
+a.agg.model = a.agg %>% prophet()
+
+#using model make future period df
+a.agg.future = a.agg.model %>% make_future_dataframe(
+  periods = 28, #next 4 wks
+  freq = 'day') 
+
+#make forecasts df
+a.agg.forecast = a.agg.model %>% predict(a.agg.future)
+
+#plot forecast
+a.agg.model %>% dyplot.prophet(a.agg.forecast)
+
+#plot forecast components
+a.agg.model %>% prophet_plot_components(a.agg.forecast)
+
+```
+
+<h style="color: blue; font-size:12px;">Mondays are more dangerous than other days of the week</h>
 
 # Leaflet
 
