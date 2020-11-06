@@ -366,7 +366,7 @@ a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~census_tract) %>% add_markers()
 # Anomaly Detection
 
 ## Total Offenses by Month
-```{r warning=FALSE, out.height=1000}
+```{r warning=FALSE, out.width=1000}
 library(anomalize)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
 
