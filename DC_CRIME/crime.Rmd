@@ -1,7 +1,7 @@
 ---
 title: "Exploring and Predicting Crime in Washington DC"
 subtitle: "Data History from Jan 1, 2012 to November 2, 2017"
-author: 'Jeremiah Wang, November 2020'
+author: 'Jeremiah W, November 2020'
 output:
   html_document:
     theme: cerulean
@@ -32,7 +32,7 @@ library(skimr);library(tidyverse);library(scales)
 
 # Objective
 
-* Understand crime in WDC by exploring data at both macro and micro levels, and then make predictions.
+* Understand crime in WDC by exploring data at both macro and micro levels, make recommendations for 2018, and then make future predictions.
 
 # Goals
 1. Find total offenses by each factor group
@@ -44,10 +44,7 @@ library(skimr);library(tidyverse);library(scales)
 3. Trend over time (last 3 years)
     + total offenses
     + total offenses by type
-4. Predict total offenses for the next 4 weeks
-5. Create Geographic Maps
-    + by offense type
-      + by last 3 available years
+4. Predict total offenses for the next 3 months
 
 # Get Data
 ```{r warning=FALSE, message=FALSE}
@@ -61,18 +58,15 @@ a = read_csv('raw.csv') %>%
     where(is.character),
     where(is.factor),
     where(is.numeric)
-  ) %>% slice_sample(prop = 1) #work with 5% of dataset for now
+  )
 ```
-
-# Notes
-
-1. rmarkdown variable for filtering entire doc to specific year
 
 # Resources
 
-1. DC Wards
+1. WDC Wards
     + https://dc.curbed.com/maps/dc-council-eight-wards-map-elections-neighborhoods
-2. 
+2. psa = police service area
+    + https://mpdc.dc.gov/page/police-districts-and-police-service-areas
 
 ### sample data
 ```{r}
@@ -114,23 +108,18 @@ a = a %>% select(!c(minute, second, anc, block, block_group, end_date, ew, neigh
     where(is.numeric) 
     ) %>% arrange(report_dat, crimetype, offense)
     
-abak = a
-#saveRDS(abak, 'cleaned_data_10yrs.RDS')
+#abak = a
+#saveRDS(abak, 'cleaned_data.RDS')
 #a = abak
 ```
 
+<h style="color: blue; font-size:12px;">If we wanted to do more detailed geographic analysis, we might want to include block and block group</h>
+
 ```{r include=FALSE}
-a = readRDS('cleaned_data_10yrs.RDS')
+a = readRDS('cleaned_data.RDS')
 #filter to ~5 years of data
-a = a %>% filter(report_dat >= '2012-01-01')
+a = a %>% filter(year %in% c(2012,2013,2014,2015,2016,2017))
 ```
-
-
-Notes
-
-1. If we wanted to do more detailed geographic analysis, we might want to include block and block group
-2. psa = police service area
-    + https://mpdc.dc.gov/page/police-districts-and-police-service-areas
 
 # EDA: factor vars
 
@@ -182,32 +171,73 @@ a %>% select(where(is.factor)) %>% map(unique)
 ```{r fig.width= 10}
 a %>% filter(year != 2017) %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 1, title = 'Total Offenses by Category - Historic')
 ```
+```{r}
+a %>% filter(year != 2017) %>% count(psa, sort = TRUE, name = 'count') %>%
+  head(10) %>%
+  mutate(psa = factor(psa)) %>%
+  mutate(psa = fct_reorder(psa, -count)) %>% 
+  plot_ly(x = ~psa, y = ~count, color = ~psa, colors = jpal) %>% 
+  add_bars() %>% 
+  layout(
+    title = 'Police Service Areas with the Most Crime'
+  )
+```
+
 
 Observations:
 
 1. Most offenses occurs late summer to early fall (top 3 months: Oct, July, Aug)
 2. More offenses occurs towards the latter half the month (>= Day 16)
-3. More offenses occurs towards the end of the month (top 3 months: July, August, June)
-4. Non-violent offenses occur ~4.5 x as much as violent offenses
-5. Theft is, by far, the most common offense
+3. Non-violent offenses occur ~5x as much as violent offenses
+4. Theft is, by far, the most common offense
     + auto-theft is so predominant, it has its own category
-6. The Northeast quad is significantly more dangerous than the other wards
-    + OR... we collect data more accurately/frequently for this quad?
-7. Ward 2 is the most dangerous ward by a good margin
-    + OR... we collect data more accurately/frequently for this ward?
+5. The Northeast quad has significantly more crime
+    + can partly be attributed to its slightly larger size as seen below in the quick map
+6. Wards 2 and 6 are the most dangerous wards by a good margin
+7. PSA service areas 207, 302, and 208 have the most crime by a good margin
 
 
 ### Latest Year 2017
 ```{r fig.width= 10}
 a %>% filter(year == 2017) %>% select(where(is.factor)) %>% DataExplorer::plot_bar(ncol = 1, nrow = 1, title = 'Total Offenses by Category - 2017')
 ```
+```{r}
+a %>% filter(year == 2017) %>% count(psa, sort = TRUE, name = 'count') %>%
+  head(10) %>%
+  mutate(psa = factor(psa)) %>%
+  mutate(psa = fct_reorder(psa, -count)) %>% 
+  plot_ly(x = ~psa, y = ~count, color = ~psa, colors = jpal) %>% 
+  add_bars() %>% 
+  layout(
+    title = 'Police Service Areas with the Most Crime'
+  )
+```
+
+### quick map
+```{r out.width = 700, out.height = 500}
+ipal = grDevices::colorRampPalette(brewer.pal(12,'Paired'))(56)
+
+a %>% filter(year == 2017) %>% plot_ly(x = ~xblock, y = ~yblock, color = ~quad, colors = ipal) %>% add_markers() %>% layout(title = 'WDC Quadrants')
+
+a %>% filter(year == 2017) %>% plot_ly(x = ~xblock, y = ~yblock, color = ~ward, colors = ipal) %>% add_markers() %>% layout(title = 'WDC Wards')
+
+a %>% filter(year == 2017) %>% plot_ly(x = ~xblock, y = ~yblock, color = ~psa, colors = ipal) %>% add_markers() %>% layout(title = 'WDC PSAs') %>% hide_legend()
+```
 
 Observations relative to Historic
 
-1. **January 2017** was atypically more dangerous 
-2. Non-violent offenses make up a greater percent of total offenses, occurring about ~6 x as much as violent offenses
-3. Wards 5 and 7 are more dangerous than they were historically; 6 is safer
+1. **January and May 2017** were atypically more dangerous 
+2. Non-violent offenses made up a greater percent of total offenses then they did historically (5x), occurring about ~6.5 x as much as violent offenses
+3. Wards 2 and 6 continue to be the top 2 dangerous wards
+4. PSA service areas 207, 302, and 208 continue to have the most crime, albeit by a smaller margin
 
+## Recommendations Batch 1
+
+Recommendations for the year 2018 based on 2017 findings
+
+1. Staff More Policemen and women from 1 to 3 pm..  
+2. Staff More Policemen and women in wards 2 and 6.
+3. Staff More Policemen and women in PSA 208.
 
 ## Goal 2. Find total offenses by each offense type/ward group
 
@@ -246,10 +276,19 @@ ggplotly(
 
 Observations relative to Historic
 
-1. Ward 2's share of theft f/auto is higher
-2. *Relative to other wards*, Wards 5,6,7 are more dangerous than they were historically
+1. Ward 2 continues to have the greatest number of cases as observed above, but this is disproportionately **mostly composed of theft/other offenses**
+2. Ward 6's share of theft/other is higher
+3. *Relative to other wards*, in 2017, Wards 5 and 6 are more dangerous than they were historically
     + on an *absolute basis*, all wards are less dangerous
         + see time series graphs below
+
+## Recommendations Batch 2
+
+Recommendations for the year 2018 based on 2017 findings
+
+1. Work on educating citizens on proper theft deterrent methods, especially in ward 2; perhaps install more cameras there.
+2. Looking at wards 7 and 8, it seems like motor vehicle theft may be correlated by assault with a dangerous weapon.
+		+ Check out if both offenses occurred simultaneously.
 
 ## Goal 3. Trend over time
 
@@ -357,12 +396,6 @@ a %>% select(where(is.numeric)) %>% glimpse
 a %>% select(where(is.numeric)) %>% miss_var_summary
 ```
 
-### quick map
-```{r out.width = 700, out.height = 500}
-a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~ward) %>% add_markers() %>% layout(title = 'WDC Wards')
-a %>% plot_ly(x = ~xblock, y = ~yblock, color = ~census_tract) %>% add_markers() %>% layout(title = 'WDC Wards Census Tracts') %>% hide_legend()
-```
-
 # Anomaly Detection
 
 ## Total Offenses by Month
@@ -396,31 +429,19 @@ a.anomalize %>%
 )
 ```
 
-<h style="color: blue; font-size:12px;">There was statistically high crime activity in November 2014</h>
-<h style="color: blue; font-size:12px;">There was statistically low crime activity in August & September 2017</h>
+<h style="color: blue; font-size:12px;">There was statistically high crime activity in August 2014</h>
+<h style="color: blue; font-size:12px;">There was statistically low crime activity in August 2017</h>
 
-# Predict Total Offenses for the next 4 Weeks
-
-```{r}
-a %>% count(monthkey, crimetype, name = 'count') %>%
-  select(-monthkey) %>%
-  plot_ly(y = ~crimetype, x = ~count, color = ~crimetype) %>%
-  add_boxplot() %>% 
-  layout(
-    title = 'Daily Crime Cases by Crime Type ',
-    xaxis = list(title ='Roughly 5 Year Distribution'),
-    yaxis = list(title ='')
-    )
-```
-
+# Predict Total Offenses for the 3 Months
 
 ### Create Model
 ```{r fig.width = 12, message=FALSE}
 library(prophet)
 
 #renaming cols to prophet's col conventions
-a.agg = a %>% filter(crimetype == 'Violent') %>% 
-  group_by(report_dat = round_date(report_dat,'day')) %>% 
+a.agg = a %>%
+  #filter(crimetype == 'Violent') %>% 
+  group_by(report_dat = round_date(report_dat,'month')) %>% 
   summarise(total.offenses = n()) %>% 
   select(ds = report_dat, y = total.offenses)
 
@@ -429,8 +450,8 @@ a.agg.model = a.agg %>% prophet()
 
 #using model make future period df
 a.agg.future = a.agg.model %>% make_future_dataframe(
-  periods = 28, #next 4 wks
-  freq = 'day') 
+  periods = 3, #next 2 months
+  freq = 'month') 
 
 #make forecasts df
 a.agg.forecast = a.agg.model %>% predict(a.agg.future)
@@ -443,11 +464,15 @@ a.agg.model %>% prophet_plot_components(a.agg.forecast)
 
 ```
 
-<h style="color: blue; font-size:12px;">Mondays are more dangerous than other days of the week</h>
+<h style="color: blue; font-size:12px;">Looking at bottom chart of the component graphs, we can see crime has seasonal monthly peaks </h>
 
-# Leaflet
+## Prediction Summary
+```{r}
+a.agg.forecast %>% tail(3) %>% select(ds, yhat) %>% 
+  rename(month = ds, total_offenses_prediction = yhat)
+```
 
-# Preprocessing
-# Simple Modeling
-# Complex Modeling
-# Auto Modeling
+```{r}
+
+```
+
