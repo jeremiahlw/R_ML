@@ -7,5 +7,6 @@
 *.rdx
 *.png
 *.jpg
+*.csv
 
 .Rproj.user

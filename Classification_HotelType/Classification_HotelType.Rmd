@@ -1,0 +1,248 @@
+---
+title: "XXX"
+author: 'Jeremiah Wang'
+date: "November 2020"
+output:
+  html_document:
+    theme: simplex
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+
+library(tidymodels);library(h2o)
+```
+
+# Introduction
+
+[Check out this Kaggle](https://www.kaggle.com/jessemostipak/hotel-booking-demand)
+
+
+# Get Data
+
+```{r message=FALSE}
+a = read_csv('hotel_bookings.csv') %>%
+  clean_names() %>% 
+  mutate(across(where(is.character), factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is.numeric)
+  )
+```
+
+## 5 min EDA
+
+```{r}
+a %>% head
+```
+
+```{r}
+skimr::skim(a)
+```
+
+### clean data
+```{r}
+# these numeric vars s/b factor vars
+a = a %>% mutate_at(vars(arrival_date_day_of_month, arrival_date_week_number, arrival_date_year, is_canceled, is_repeated_guest), factor)
+
+# reordering df
+a = a %>% select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is.numeric)
+  )
+```
+
+
+# EDA: datatime vars
+
+### range
+```{r}
+a %>% select(where(is.Date))
+a %>% pull(reservation_status_date) %>% range
+```
+
+### time series count graph -- ungrouped
+```{r}
+a %>% count(reservation_status_date, name = 'count') %>%
+  arrange(reservation_status_date) %>%
+  plot_ly(
+    x = ~reservation_status_date,
+    y = ~count
+  ) %>% layout(
+    title = 'booking counts by date',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### time series count graph -- grouped
+```{r}
+a %>% group_by(reservation_status_date, hotel) %>%
+  summarise(count = n()) %>% 
+  arrange(reservation_status_date) %>%
+  plot_ly(
+    x = ~reservation_status_date,
+    y = ~count,
+    color = ~hotel,
+    alpha = 0.7
+  ) %>% layout(
+    title = 'booking counts by date/hotel',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### time series count graph -- grouped
+```{r}
+a %>% group_by(reservation_status_date, customer_type) %>%
+  summarise(count = n()) %>% 
+  arrange(reservation_status_date) %>%
+  plot_ly(
+    x = ~reservation_status_date,
+    y = ~count,
+    color = ~customer_type,
+    alpha = 0.7
+  ) %>% layout(
+    title = 'booking counts by date/customer_type',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### time series count graph -- grouped
+```{r}
+a %>% group_by(reservation_status_date, deposit_type) %>%
+  summarise(count = n()) %>% 
+  arrange(reservation_status_date) %>%
+  plot_ly(
+    x = ~reservation_status_date,
+    y = ~count,
+    color = ~deposit_type,
+    alpha = 0.7
+  ) %>% layout(
+    title = 'booking counts by date/deposit_type',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### time series count graph -- grouped
+```{r}
+a %>% group_by(reservation_status_date, distribution_channel) %>%
+  summarise(count = n()) %>% 
+  arrange(reservation_status_date) %>%
+  plot_ly(
+    x = ~reservation_status_date,
+    y = ~count,
+    color = ~distribution_channel,
+    alpha = 0.7
+  ) %>% layout(
+    title = 'booking counts by date/distribution_channel',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+# EDA: nom vars
+
+### sample data
+```{r}
+a %>% select(where(is.factor)) %>% slice_sample(n = 10)
+```
+
+### glimpse structure
+```{r}
+a %>% select(where(is.factor)) %>% glimpse
+```
+
+### check missing values
+```{r}
+a %>% select(where(is.factor)) %>% miss_var_summary
+```
+
+### distribution of level counts per factor
+```{r}
+jpal = colorRampPalette(brewer.pal(8,'Dark2'))(15)
+
+a %>% select(where(is.factor)) %>%
+  map(n_unique) %>%
+  as.tibble() %>%
+  pivot_longer(everything()) %>%
+  plot_ly(y = ~name, x = ~value, color = ~name, colors = jpal) %>%
+  add_bars() %>%
+  hide_legend() %>% 
+  layout(
+    title = 'distribution of level counts per factor',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### reference: names of unique levels
+```{r}
+a %>% select(where(is.factor)) %>%
+  map(unique)
+
+a = a %>% mutate(arrival_date_month = factor(arrival_date_month, levels = c('January','February','March','April','May','June','July','August','September','October','November','December')))
+```
+
+# EDA: num vars
+
+### check missing values
+```{r}
+a %>% select(where(is.numeric)) %>% miss_var_summary
+```
+
+### sample data
+```{r}
+a %>% select(where(is.numeric)) %>% slice_sample(n = 10)
+```
+
+### glimpse structure
+```{r}
+a %>% select(where(is.numeric)) %>% glimpse
+```
+
+### viz: distribution histogram
+```{r}
+a %>% select(where(is.numeric)) %>% DataExplorer::plot_histogram(nrow = 2, ncol = 1)
+```
+
+### viz: distribution density
+```{r}
+a %>% select(where(is.numeric)) %>% DataExplorer::plot_density(nrow = 2, ncol = 1)
+```
+
+### viz: distribution bivariate
+```{r}
+a %>% select(hotel, where(is.numeric)) %>% DataExplorer::plot_boxplot(by = 'hotel', nrow = 3, ncol = 1)
+```
+
+### correlations: viz
+```{r}
+a %>% select(where(is.numeric)) %>% dlookr::plot_correlate()
+a %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label = TRUE)
+```
+
