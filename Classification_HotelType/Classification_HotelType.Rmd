@@ -1,5 +1,5 @@
 ---
-title: "XXX"
+title: "Predicting Hotel Type and Booking Demand"
 author: 'Jeremiah Wang'
 date: "November 2020"
 output:
@@ -50,6 +50,19 @@ a = read_csv('hotel_bookings.csv') %>%
   )
 ```
 
+# Resources
+
+1. adr
+    + https://www.xotels.com/en/glossary/adr-average-daily-rate/
+2. transient
+    + https://www.xotels.com/en/glossary/transient/
+3. group rate
+    + https://www.xotels.com/en/glossary/group-rate/
+4. Guide to Hotel Management
+    + https://www.4hoteliers.com/features/article/9886
+5. distribution channels
+    + https://www.xotels.com/en/glossary/channels/
+
 ## 5 min EDA
 
 ```{r}
@@ -79,12 +92,20 @@ a = a %>% select(sort(tidyselect::peek_vars())) %>%
 
 ### range
 ```{r}
-a %>% select(where(is.Date))
-a %>% pull(reservation_status_date) %>% range
+a %>% select(where(is.Date)) %>% colnames()
+paste(
+  'The date range of this dataset is from',
+  a %>% pull(reservation_status_date) %>% range %>% .[1],
+  'to',
+  a %>% pull(reservation_status_date) %>% range %>% .[2]
+)
 ```
 
+
+
+
 ### time series count graph -- ungrouped
-```{r}
+```{r message=FALSE}
 a %>% count(reservation_status_date, name = 'count') %>%
   arrange(reservation_status_date) %>%
   plot_ly(
@@ -97,8 +118,8 @@ a %>% count(reservation_status_date, name = 'count') %>%
     )
 ```
 
-### time series count graph -- grouped
-```{r}
+### time series count graph -- grouped (hotel)
+```{r message=FALSE}
 a %>% group_by(reservation_status_date, hotel) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
@@ -114,8 +135,8 @@ a %>% group_by(reservation_status_date, hotel) %>%
     )
 ```
 
-### time series count graph -- grouped
-```{r}
+### time series count graph -- grouped (customer_type)
+```{r message=FALSE}
 a %>% group_by(reservation_status_date, customer_type) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
@@ -131,8 +152,8 @@ a %>% group_by(reservation_status_date, customer_type) %>%
     )
 ```
 
-### time series count graph -- grouped
-```{r}
+### time series count graph -- grouped (deposit_type)
+```{r message=FALSE}
 a %>% group_by(reservation_status_date, deposit_type) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
@@ -148,8 +169,8 @@ a %>% group_by(reservation_status_date, deposit_type) %>%
     )
 ```
 
-### time series count graph -- grouped
-```{r}
+### time series count graph -- grouped (distribution_channel)
+```{r message=FALSE}
 a %>% group_by(reservation_status_date, distribution_channel) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
@@ -238,6 +259,83 @@ a %>% select(where(is.numeric)) %>% DataExplorer::plot_density(nrow = 2, ncol = 
 ### viz: distribution bivariate
 ```{r}
 a %>% select(hotel, where(is.numeric)) %>% DataExplorer::plot_boxplot(by = 'hotel', nrow = 3, ncol = 1)
+```
+
+### ADR further investigation
+```{r}
+#looks like one outlier in adr is changing the scale, making it hard to see the true distribution --remove outlier
+a$adr %>% range
+a %>% filter(adr != 5400) %>%
+  select(hotel, adr) %>%
+  plot_ly(y = ~hotel, x = ~adr, color = ~hotel) %>% 
+  add_boxplot()
+
+#https://stackoverflow.com/questions/57300053/split-a-plotly-boxplot-x-axis-by-group
+a %>% filter(adr != 5400) %>%
+  select(hotel, adr, customer_type) %>%
+  plot_ly(y = ~hotel, x = ~adr, color = ~customer_type, colors = jpal, group = ~customer_type) %>% 
+  add_boxplot() %>% 
+  layout(
+    boxmode = 'group', #SUPER IMPORTANT
+    title = 'ADR by Hotel/customer_type'
+    ) 
+
+#https://stackoverflow.com/questions/57300053/split-a-plotly-boxplot-x-axis-by-group
+a %>% filter(adr != 5400) %>%
+  select(hotel, adr, market_segment) %>%
+  plot_ly(y = ~hotel, x = ~adr, color = ~market_segment, colors = jpal, group = ~market_segment) %>% 
+  add_boxplot() %>% 
+  layout(
+    boxmode = 'group', #SUPER IMPORTANT
+    title = 'ADR by Hotel/market_segment'
+    ) 
+
+#https://stackoverflow.com/questions/57300053/split-a-plotly-boxplot-x-axis-by-group
+a %>% filter(adr != 5400) %>%
+  select(hotel, adr, arrival_date_month) %>%
+  plot_ly(y = ~hotel, x = ~adr, color = ~arrival_date_month, colors = jpal, group = ~arrival_date_month) %>% 
+  add_boxplot() %>% 
+  layout(
+    boxmode = 'group', #SUPER IMPORTANT
+    title = 'ADR by Hotel/arrival_date_month'
+    ) 
+
+```
+
+```{r}
+
+
+  
+
+  
+a %>% filter(adr != 5400) %>%
+  group_by(hotel, adr, customer_type) %>%
+  do(
+    list.of.plots = plot_ly(. , x = ~adr, y = ~hotel) %>% 
+      add_boxplot(
+        color = ~customer_type,
+        )
+  ) %>% subplot(nrows = 2, shareY = TRUE, shareX = TRUE)   
+  
+
+```
+
+
+```{r}
+library(DescTools)
+
+ggplotly(
+a %>% filter(adr != 5400) %>% 
+  mutate(arrival_date_month = factor(arrival_date_month, labels = DescTools::StrLeft(levels(a$arrival_date_month), 3))) %>% 
+  group_by(arrival_date_month, hotel) %>% 
+  summarise(med.adr = median(adr, na.rm = TRUE)) %>% 
+  ggplot(aes(arrival_date_month, med.adr, fill = hotel)) +
+  geom_col(position = 'dodge') +
+  scale_fill_manual(values = c('blue4','darkorange'))
+) %>% layout(
+  title = 'Median ADR by Hotel/Month'
+)
+  
 ```
 
 ### correlations: viz
