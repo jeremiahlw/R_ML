@@ -37,8 +37,8 @@ library(tidymodels);library(h2o)
 
 # Business Goals
 
-1. Determine if we can classify a booking as a resort or city type
-2. Predict the number of bookings for resort and city for the next 4 weeks
+1. Predict the number of bookings for resort and city for the next 4 weeks
+2. Determine if we can classify a booking as a resort or city type
 3. Predict adr prices based on other features
 
 # Ideas
@@ -58,7 +58,9 @@ a = read_csv('hotel_bookings.csv') %>%
     where(is.Date),
     where(is.factor),
     where(is.numeric)
-  )
+  ) %>% filter(is_canceled == 0) #filter to non-canceled bookings
+
+a$is_canceled = NULL
 ```
 
 # Split Data
@@ -93,10 +95,18 @@ train %>% head
 skimr::skim(train)
 ```
 
-### clean data
+### clean/encode data
 ```{r}
+# make arrival date col
+train = train %>% mutate(
+  arrival.date = make_date(
+    year = arrival_date_year,
+    month = match(arrival_date_month, month.name),
+    day = arrival_date_day_of_month)
+  )
+
 # these numeric vars s/b factor vars
-train = train %>% mutate_at(vars(arrival_date_day_of_month, arrival_date_week_number, arrival_date_year, is_canceled, is_repeated_guest), factor)
+train = train %>% mutate_at(vars(arrival_date_day_of_month, arrival_date_week_number, arrival_date_year, is_repeated_guest), factor)
 
 # reordering df
 train = train %>% select(sort(tidyselect::peek_vars())) %>% 
@@ -105,34 +115,34 @@ train = train %>% select(sort(tidyselect::peek_vars())) %>%
     where(is.factor),
     where(is.numeric)
   )
+
 ```
 
 
-# EDA: datatime vars
+# EDA: time series
+
+Note: not a true time series in that the arrival month is a factor
 
 ### range
 ```{r}
-train %>% select(where(is.Date)) %>% colnames()
 paste(
   'The date range of this dataset is from',
-  train %>% pull(reservation_status_date) %>% range %>% .[1],
+  train %>% pull(arrival.date) %>% range %>% .[1],
   'to',
-  train %>% pull(reservation_status_date) %>% range %>% .[2]
+  train %>% pull(arrival.date) %>% range %>% .[2]
 )
 ```
 
-
-
-
 ### time series count graph -- ungrouped
 ```{r message=FALSE}
-train %>% count(reservation_status_date, name = 'count') %>%
-  arrange(reservation_status_date) %>%
+train %>% group_by(arrival.date, hotel) %>% 
+  summarise(total.bookings = sum(adults, children)) %>% 
+  arrange(arrival.date) %>%
   plot_ly(
-    x = ~reservation_status_date,
-    y = ~count
+    x = ~arrival.date,
+    y = ~total.bookings
   ) %>% layout(
-    title = 'booking counts by date',
+    title = 'total.bookings by date',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -140,16 +150,16 @@ train %>% count(reservation_status_date, name = 'count') %>%
 
 ### time series count graph -- grouped (hotel)
 ```{r message=FALSE}
-train %>% group_by(reservation_status_date, hotel) %>%
+train %>% group_by(arrival.date, hotel) %>%
   summarise(count = n()) %>% 
-  arrange(reservation_status_date) %>%
+  arrange(arrival.date) %>%
   plot_ly(
-    x = ~reservation_status_date,
+    x = ~arrival.date,
     y = ~count,
     color = ~hotel,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'booking counts by date/hotel',
+    title = 'total.bookings by date/hotel',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -157,16 +167,16 @@ train %>% group_by(reservation_status_date, hotel) %>%
 
 ### time series count graph -- grouped (customer_type)
 ```{r message=FALSE}
-train %>% group_by(reservation_status_date, customer_type) %>%
+train %>% group_by(arrival.date, customer_type) %>%
   summarise(count = n()) %>% 
-  arrange(reservation_status_date) %>%
+  arrange(arrival.date) %>%
   plot_ly(
-    x = ~reservation_status_date,
+    x = ~arrival.date,
     y = ~count,
     color = ~customer_type,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'booking counts by date/customer_type',
+    title = 'total.bookings by date/customer_type',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -174,16 +184,16 @@ train %>% group_by(reservation_status_date, customer_type) %>%
 
 ### time series count graph -- grouped (deposit_type)
 ```{r message=FALSE}
-train %>% group_by(reservation_status_date, deposit_type) %>%
+train %>% group_by(arrival.date, deposit_type) %>%
   summarise(count = n()) %>% 
-  arrange(reservation_status_date) %>%
+  arrange(arrival.date) %>%
   plot_ly(
-    x = ~reservation_status_date,
+    x = ~arrival.date,
     y = ~count,
     color = ~deposit_type,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'booking counts by date/deposit_type',
+    title = 'total.bookings by date/deposit_type',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -191,16 +201,16 @@ train %>% group_by(reservation_status_date, deposit_type) %>%
 
 ### time series count graph -- grouped (distribution_channel)
 ```{r message=FALSE}
-train %>% group_by(reservation_status_date, distribution_channel) %>%
+train %>% group_by(arrival.date, distribution_channel) %>%
   summarise(count = n()) %>% 
-  arrange(reservation_status_date) %>%
+  arrange(arrival.date) %>%
   plot_ly(
-    x = ~reservation_status_date,
+    x = ~arrival.date,
     y = ~count,
     color = ~distribution_channel,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'booking counts by date/distribution_channel',
+    title = 'total.bookings by date/distribution_channel',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -400,3 +410,132 @@ train %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label =
 
 ```
 
+# Goal 1: Predict Number of Bookings by Hotel Type
+
+## Anomaly Detection
+```{r warning=FALSE}
+library(anomalize)
+# time_decompose(data, target, method = c("stl", "twitter"), frequency = "auto", trend = "auto", ..., merge = FALSE, message = TRUE)
+# anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
+# The alpha parameter adjusts the width of the critical values. By default, alpha = 0.05.
+# Lower values are more conservative while higher values are less prone to incorrectly classifying "normal" observations.
+# max_anoms: The maximum percent of anomalies permitted to be identified.
+
+# The STL method uses the stl() function from the stats package. STL works very well in circumstances where a long term trend is present (which applies in this case; see trend component in the prophet graphs below'). 
+  
+#use full data set, filter to hotel type, arrange by date
+a1 = a %>% mutate(
+  arrival.date = make_date(
+    year = arrival_date_year,
+    month = match(arrival_date_month, month.name),
+    day = arrival_date_day_of_month)
+  )
+
+(anomaly.hotel.resort = a1 %>% filter(hotel == 'Resort Hotel') %>% 
+  group_by(arrival.date, hotel) %>% 
+  summarise(total.bookings = sum(adults, children)) %>% 
+  select(arrival.date, hotel, total.bookings) %>% 
+  arrange(arrival.date) %>% as.tibble() %>% 
+  time_decompose(total.bookings, method = 'stl', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
+  time_recompose())
+
+(anomaly.hotel.city = a1 %>% filter(hotel == 'City Hotel') %>% 
+  group_by(arrival.date, hotel) %>% 
+  summarise(total.bookings = sum(adults, children)) %>% 
+  select(arrival.date, hotel, total.bookings) %>% 
+  arrange(arrival.date) %>% as.tibble() %>% 
+  time_decompose(total.bookings, method = 'stl', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
+  time_recompose())
+
+ggplotly(
+  anomaly.hotel.resort %>% 
+    plot_anomalies(
+      ncol = 2,
+      alpha_dots = 0.5,
+      alpha_circles = 0.5,
+      size_circles = 2,
+      time_recomposed = TRUE,
+      alpha_ribbon = 0.05
+      ) + scale_y_continuous(labels = comma) +
+    labs(x = '', y = 'total.bookings', title = 'resort hotel total.bookings')
+  )
+
+ggplotly(
+  anomaly.hotel.city %>% 
+    plot_anomalies(
+      ncol = 2,
+      alpha_dots = 0.5,
+      alpha_circles = 0.5,
+      size_circles = 2,
+      time_recomposed = TRUE,
+      alpha_ribbon = 0.05
+      ) + scale_y_continuous(labels = comma) +
+    labs(x = '', y = 'total.bookings', title = 'city hotel total.bookings')
+  )
+  
+
+```
+
+## Predicting Next 2 Wks Total Bookings
+
+### Resort Hotel
+```{r}
+library(prophet)
+
+#renaming cols to prophet's col conventions
+prophet.resort.df = anomaly.hotel.resort %>% select(ds = arrival.date, y = total.bookings)
+
+#creating model
+prophet.resort.mdl = prophet.resort.df %>% prophet()
+
+#using model make future period df
+prophet.resort.future.df = prophet.resort.mdl %>% make_future_dataframe(
+  periods = 28, #next 4 wks
+  freq = 'day',
+  include_history = TRUE
+  )
+
+#make forecasts df
+prophet.resort.forecast.df = prophet.resort.mdl %>% predict(prophet.resort.future.df)
+
+prophet.resort.forecast.df %>% head %>% DT::datatable()
+
+#plot forecast
+prophet.resort.mdl %>% dyplot.prophet(prophet.resort.forecast.df)
+
+#plot forecast components
+prophet.resort.mdl %>% prophet_plot_components(prophet.resort.forecast.df)
+
+```
+
+### City Hotel
+```{r}
+library(prophet)
+
+#renaming cols to prophet's col conventions
+prophet.city.df = anomaly.hotel.city %>% select(ds = arrival.date, y = total.bookings)
+
+#creating model
+prophet.city.mdl = prophet.city.df %>% prophet()
+
+#using model make future period df
+prophet.city.future.df = prophet.city.mdl %>% make_future_dataframe(
+  periods = 28, #next 4 wks
+  freq = 'day',
+  include_history = TRUE
+  )
+
+#make forecasts df
+prophet.city.forecast.df = prophet.city.mdl %>% predict(prophet.city.future.df)
+
+prophet.city.forecast.df %>% head %>% DT::datatable()
+
+#plot forecast
+prophet.city.mdl %>% dyplot.prophet(prophet.city.forecast.df)
+
+#plot forecast components
+prophet.city.mdl %>% prophet_plot_components(prophet.city.forecast.df)
+
+```
