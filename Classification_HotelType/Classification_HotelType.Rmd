@@ -35,6 +35,17 @@ library(tidymodels);library(h2o)
 
 [Check out this Kaggle](https://www.kaggle.com/jessemostipak/hotel-booking-demand)
 
+# Business Goals
+
+1. Determine if we can classify a booking as a resort or city type
+2. Predict the number of bookings for resort and city for the next 4 weeks
+3. Predict adr prices based on other features
+
+# Ideas
+
+1. logistic regression / random forests
+2. fb's prophet package
+3. elastic net, random forest, regression
 
 # Get Data
 
@@ -49,6 +60,15 @@ a = read_csv('hotel_bookings.csv') %>%
     where(is.numeric)
   )
 ```
+
+# Split Data
+
+```{r}
+split = initial_split(a)
+train = rsample::training(split)
+test = rsample::testing(split)
+```
+
 
 # Resources
 
@@ -66,20 +86,20 @@ a = read_csv('hotel_bookings.csv') %>%
 ## 5 min EDA
 
 ```{r}
-a %>% head
+train %>% head
 ```
 
 ```{r}
-skimr::skim(a)
+skimr::skim(train)
 ```
 
 ### clean data
 ```{r}
 # these numeric vars s/b factor vars
-a = a %>% mutate_at(vars(arrival_date_day_of_month, arrival_date_week_number, arrival_date_year, is_canceled, is_repeated_guest), factor)
+train = train %>% mutate_at(vars(arrival_date_day_of_month, arrival_date_week_number, arrival_date_year, is_canceled, is_repeated_guest), factor)
 
 # reordering df
-a = a %>% select(sort(tidyselect::peek_vars())) %>% 
+train = train %>% select(sort(tidyselect::peek_vars())) %>% 
   select(
     where(is.Date),
     where(is.factor),
@@ -92,12 +112,12 @@ a = a %>% select(sort(tidyselect::peek_vars())) %>%
 
 ### range
 ```{r}
-a %>% select(where(is.Date)) %>% colnames()
+train %>% select(where(is.Date)) %>% colnames()
 paste(
   'The date range of this dataset is from',
-  a %>% pull(reservation_status_date) %>% range %>% .[1],
+  train %>% pull(reservation_status_date) %>% range %>% .[1],
   'to',
-  a %>% pull(reservation_status_date) %>% range %>% .[2]
+  train %>% pull(reservation_status_date) %>% range %>% .[2]
 )
 ```
 
@@ -106,7 +126,7 @@ paste(
 
 ### time series count graph -- ungrouped
 ```{r message=FALSE}
-a %>% count(reservation_status_date, name = 'count') %>%
+train %>% count(reservation_status_date, name = 'count') %>%
   arrange(reservation_status_date) %>%
   plot_ly(
     x = ~reservation_status_date,
@@ -120,14 +140,14 @@ a %>% count(reservation_status_date, name = 'count') %>%
 
 ### time series count graph -- grouped (hotel)
 ```{r message=FALSE}
-a %>% group_by(reservation_status_date, hotel) %>%
+train %>% group_by(reservation_status_date, hotel) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
   plot_ly(
     x = ~reservation_status_date,
     y = ~count,
     color = ~hotel,
-    alpha = 0.7
+    alphtrain = 0.7
   ) %>% layout(
     title = 'booking counts by date/hotel',
     xaxis = list(title = ''),
@@ -137,14 +157,14 @@ a %>% group_by(reservation_status_date, hotel) %>%
 
 ### time series count graph -- grouped (customer_type)
 ```{r message=FALSE}
-a %>% group_by(reservation_status_date, customer_type) %>%
+train %>% group_by(reservation_status_date, customer_type) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
   plot_ly(
     x = ~reservation_status_date,
     y = ~count,
     color = ~customer_type,
-    alpha = 0.7
+    alphtrain = 0.7
   ) %>% layout(
     title = 'booking counts by date/customer_type',
     xaxis = list(title = ''),
@@ -154,14 +174,14 @@ a %>% group_by(reservation_status_date, customer_type) %>%
 
 ### time series count graph -- grouped (deposit_type)
 ```{r message=FALSE}
-a %>% group_by(reservation_status_date, deposit_type) %>%
+train %>% group_by(reservation_status_date, deposit_type) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
   plot_ly(
     x = ~reservation_status_date,
     y = ~count,
     color = ~deposit_type,
-    alpha = 0.7
+    alphtrain = 0.7
   ) %>% layout(
     title = 'booking counts by date/deposit_type',
     xaxis = list(title = ''),
@@ -171,14 +191,14 @@ a %>% group_by(reservation_status_date, deposit_type) %>%
 
 ### time series count graph -- grouped (distribution_channel)
 ```{r message=FALSE}
-a %>% group_by(reservation_status_date, distribution_channel) %>%
+train %>% group_by(reservation_status_date, distribution_channel) %>%
   summarise(count = n()) %>% 
   arrange(reservation_status_date) %>%
   plot_ly(
     x = ~reservation_status_date,
     y = ~count,
     color = ~distribution_channel,
-    alpha = 0.7
+    alphtrain = 0.7
   ) %>% layout(
     title = 'booking counts by date/distribution_channel',
     xaxis = list(title = ''),
@@ -190,24 +210,24 @@ a %>% group_by(reservation_status_date, distribution_channel) %>%
 
 ### sample data
 ```{r}
-a %>% select(where(is.factor)) %>% slice_sample(n = 10)
+train %>% select(where(is.factor)) %>% slice_sample(n = 10)
 ```
 
 ### glimpse structure
 ```{r}
-a %>% select(where(is.factor)) %>% glimpse
+train %>% select(where(is.factor)) %>% glimpse
 ```
 
 ### check missing values
 ```{r}
-a %>% select(where(is.factor)) %>% miss_var_summary
+train %>% select(where(is.factor)) %>% miss_var_summary
 ```
 
 ### distribution of level counts per factor
 ```{r}
 jpal = colorRampPalette(brewer.pal(8,'Dark2'))(15)
 
-a %>% select(where(is.factor)) %>%
+train %>% select(where(is.factor)) %>%
   map(n_unique) %>%
   as.tibble() %>%
   pivot_longer(everything()) %>%
@@ -223,55 +243,109 @@ a %>% select(where(is.factor)) %>%
 
 ### reference: names of unique levels
 ```{r}
-a %>% select(where(is.factor)) %>%
+train %>% select(where(is.factor)) %>%
   map(unique)
 
-a = a %>% mutate(arrival_date_month = factor(arrival_date_month, levels = c('January','February','March','April','May','June','July','August','September','October','November','December')))
+train = train %>% mutate(arrival_date_month = factor(arrival_date_month, levels = c('January','February','March','April','May','June','July','August','September','October','November','December')))
 ```
 
 # EDA: num vars
 
 ### check missing values
 ```{r}
-a %>% select(where(is.numeric)) %>% miss_var_summary
+train %>% select(where(is.numeric)) %>% miss_var_summary
 ```
 
 ### sample data
 ```{r}
-a %>% select(where(is.numeric)) %>% slice_sample(n = 10)
+train %>% select(where(is.numeric)) %>% slice_sample(n = 10)
 ```
 
 ### glimpse structure
 ```{r}
-a %>% select(where(is.numeric)) %>% glimpse
+train %>% select(where(is.numeric)) %>% glimpse
+```
+
+
+### viz: outliers
+```{r}
+train %>% select(where(is.numeric)) %>% dlookr::plot_outlier()
+```
+
+<h style="color: red; font-size:18px;">There are many upper outliers.  When building a prediction model, perhaps we should consider transforming them or removing them entirely.</h>
+
+### check right tailness
+```{r}
+jquantiles = function(col){quantile(col, probs = c(0.90, 0.95, 0.99, 1))}
+
+train %>% na.omit %>% select(where(is.numeric)) %>%
+  map(.x = . , jquantiles) %>%
+  as.data.frame.list() %>%
+  rownames_to_column() %>%
+  as.tibble()
+
+```
+
+### viz: normality
+```{r}
+train %>% select(where(is.numeric)) %>% dlookr::plot_normality()
 ```
 
 ### viz: distribution histogram
 ```{r}
-a %>% select(where(is.numeric)) %>% DataExplorer::plot_histogram(nrow = 2, ncol = 1)
+#with outliers
+train %>% select(where(is.numeric)) %>% DataExplorer::plot_histogram(nrow = 2, ncol = 1)
 ```
 
-### viz: distribution density
 ```{r}
-a %>% select(where(is.numeric)) %>% DataExplorer::plot_density(nrow = 2, ncol = 1)
+#no outliers
+train %>% select(where(is.numeric)) %>% filter(
+  adr != 5400,
+  adults != 55,
+  babies != 10,
+  booking_changes != 21,
+  children != 10,
+  days_in_waiting_list != 391,
+  lead_time != 709,
+  previous_bookings_not_canceled != 72,
+  previous_cancellations != 26,
+  required_car_parking_spaces != 8,
+  stays_in_week_nights != 50,
+  stays_in_weekend_nights != 19
+) %>% DataExplorer::plot_histogram(nrow = 2, ncol = 1)
 ```
+
 
 ### viz: distribution bivariate
 ```{r}
-a %>% select(hotel, where(is.numeric)) %>% DataExplorer::plot_boxplot(by = 'hotel', nrow = 3, ncol = 1)
+#no outliers
+train %>% select(hotel, where(is.numeric)) %>% filter(
+  adr != 5400,
+  adults != 55,
+  babies != 10,
+  booking_changes != 21,
+  children != 10,
+  days_in_waiting_list != 391,
+  lead_time != 709,
+  previous_bookings_not_canceled != 72,
+  previous_cancellations != 26,
+  required_car_parking_spaces != 8,
+  stays_in_week_nights != 50,
+  stays_in_weekend_nights != 19
+) %>% DataExplorer::plot_boxplot(by = 'hotel', nrow = 3, ncol = 1)
 ```
 
 ### ADR further investigation
 ```{r}
 #looks like one outlier in adr is changing the scale, making it hard to see the true distribution --remove outlier
 a$adr %>% range
-a %>% filter(adr != 5400) %>%
+train %>% filter(adr != 5400) %>%
   select(hotel, adr) %>%
-  plot_ly(y = ~hotel, x = ~adr, color = ~hotel) %>% 
+  plot_ly(y = ~hotel, x = ~adr, color = ~hotel, colors = jpal[1:2]) %>% 
   add_boxplot()
 
 #https://stackoverflow.com/questions/57300053/split-a-plotly-boxplot-x-axis-by-group
-a %>% filter(adr != 5400) %>%
+train %>% filter(adr != 5400) %>%
   select(hotel, adr, customer_type) %>%
   plot_ly(y = ~hotel, x = ~adr, color = ~customer_type, colors = jpal, group = ~customer_type) %>% 
   add_boxplot() %>% 
@@ -281,7 +355,7 @@ a %>% filter(adr != 5400) %>%
     ) 
 
 #https://stackoverflow.com/questions/57300053/split-a-plotly-boxplot-x-axis-by-group
-a %>% filter(adr != 5400) %>%
+train %>% filter(adr != 5400) %>%
   select(hotel, adr, market_segment) %>%
   plot_ly(y = ~hotel, x = ~adr, color = ~market_segment, colors = jpal, group = ~market_segment) %>% 
   add_boxplot() %>% 
@@ -291,41 +365,19 @@ a %>% filter(adr != 5400) %>%
     ) 
 
 #https://stackoverflow.com/questions/57300053/split-a-plotly-boxplot-x-axis-by-group
-a %>% filter(adr != 5400) %>%
+train %>% filter(adr != 5400) %>%
   select(hotel, adr, arrival_date_month) %>%
-  plot_ly(y = ~hotel, x = ~adr, color = ~arrival_date_month, colors = jpal, group = ~arrival_date_month) %>% 
+  plot_ly(x = ~hotel, y = ~adr, color = ~arrival_date_month, colors = jpal, group = ~arrival_date_month) %>% 
   add_boxplot() %>% 
   layout(
     boxmode = 'group', #SUPER IMPORTANT
     title = 'ADR by Hotel/arrival_date_month'
     ) 
 
-```
-
-```{r}
-
-
-  
-
-  
-a %>% filter(adr != 5400) %>%
-  group_by(hotel, adr, customer_type) %>%
-  do(
-    list.of.plots = plot_ly(. , x = ~adr, y = ~hotel) %>% 
-      add_boxplot(
-        color = ~customer_type,
-        )
-  ) %>% subplot(nrows = 2, shareY = TRUE, shareX = TRUE)   
-  
-
-```
-
-
-```{r}
 library(DescTools)
 
 ggplotly(
-a %>% filter(adr != 5400) %>% 
+train %>% filter(adr != 5400) %>% 
   mutate(arrival_date_month = factor(arrival_date_month, labels = DescTools::StrLeft(levels(a$arrival_date_month), 3))) %>% 
   group_by(arrival_date_month, hotel) %>% 
   summarise(med.adr = median(adr, na.rm = TRUE)) %>% 
@@ -340,7 +392,11 @@ a %>% filter(adr != 5400) %>%
 
 ### correlations: viz
 ```{r}
-a %>% select(where(is.numeric)) %>% dlookr::plot_correlate()
-a %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label = TRUE)
+train %>% select(where(is.numeric)) %>% dlookr::plot_correlate()
+train %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label = TRUE)
+```
+
+```{r}
+
 ```
 
