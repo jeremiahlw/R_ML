@@ -134,8 +134,8 @@ paste(
 ```
 
 ### time series count graph -- ungrouped
-```{r message=FALSE}
-train %>% group_by(arrival.date, hotel) %>% 
+```{r message=FALSE, warning=FALSE}
+train %>% group_by(arrival.date) %>% 
   summarise(total.bookings = sum(adults, children)) %>% 
   arrange(arrival.date) %>%
   plot_ly(
@@ -149,7 +149,7 @@ train %>% group_by(arrival.date, hotel) %>%
 ```
 
 ### time series count graph -- grouped (hotel)
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 train %>% group_by(arrival.date, hotel) %>%
   summarise(count = n()) %>% 
   arrange(arrival.date) %>%
@@ -158,15 +158,15 @@ train %>% group_by(arrival.date, hotel) %>%
     y = ~count,
     color = ~hotel,
     alphtrain = 0.7
-  ) %>% layout(
+  )  %>% layout(
     title = 'total.bookings by date/hotel',
     xaxis = list(title = ''),
     yaxis = list(title = '')
-    )
+    ) 
 ```
 
 ### time series count graph -- grouped (customer_type)
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 train %>% group_by(arrival.date, customer_type) %>%
   summarise(count = n()) %>% 
   arrange(arrival.date) %>%
@@ -183,7 +183,7 @@ train %>% group_by(arrival.date, customer_type) %>%
 ```
 
 ### time series count graph -- grouped (deposit_type)
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 train %>% group_by(arrival.date, deposit_type) %>%
   summarise(count = n()) %>% 
   arrange(arrival.date) %>%
@@ -200,7 +200,7 @@ train %>% group_by(arrival.date, deposit_type) %>%
 ```
 
 ### time series count graph -- grouped (distribution_channel)
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 train %>% group_by(arrival.date, distribution_channel) %>%
   summarise(count = n()) %>% 
   arrange(arrival.date) %>%
@@ -234,7 +234,7 @@ train %>% select(where(is.factor)) %>% miss_var_summary
 ```
 
 ### distribution of level counts per factor
-```{r}
+```{r warning=FALSE}
 jpal = colorRampPalette(brewer.pal(8,'Dark2'))(15)
 
 train %>% select(where(is.factor)) %>%
@@ -345,10 +345,13 @@ train %>% select(hotel, where(is.numeric)) %>% filter(
 ) %>% DataExplorer::plot_boxplot(by = 'hotel', nrow = 3, ncol = 1)
 ```
 
-### ADR further investigation
-```{r}
+# EDA: ADR further investigation
+
+<h style="color: red; font-size:18px;">You should calculate ADR per adult since the ds is at the booking level not individual level</h>
+
+```{r warning=FALSE}
 #looks like one outlier in adr is changing the scale, making it hard to see the true distribution --remove outlier
-a$adr %>% range
+
 train %>% filter(adr != 5400) %>%
   select(hotel, adr) %>%
   plot_ly(y = ~hotel, x = ~adr, color = ~hotel, colors = jpal[1:2]) %>% 
@@ -413,7 +416,7 @@ train %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label =
 # Goal 1: Predict Number of Bookings by Hotel Type
 
 ## Anomaly Detection
-```{r warning=FALSE}
+```{r warning=FALSE, message=FALSE}
 library(anomalize)
 # time_decompose(data, target, method = c("stl", "twitter"), frequency = "auto", trend = "auto", ..., merge = FALSE, message = TRUE)
 # anomalize(data, target, method = c("iqr", "gesd"), alpha = 0.05, max_anoms = 0.2, verbose = FALSE)
@@ -481,8 +484,10 @@ ggplotly(
 ## Predicting Next 2 Wks Total Bookings
 
 ### Resort Hotel
-```{r}
+```{r warning=FALSE, message=FALSE}
 library(prophet)
+library(dygraphs)
+# https://dygraphs.com/options.html
 
 #renaming cols to prophet's col conventions
 prophet.resort.df = anomaly.hotel.resort %>% select(ds = arrival.date, y = total.bookings)
@@ -503,7 +508,16 @@ prophet.resort.forecast.df = prophet.resort.mdl %>% predict(prophet.resort.futur
 prophet.resort.forecast.df %>% head %>% DT::datatable()
 
 #plot forecast
-prophet.resort.mdl %>% dyplot.prophet(prophet.resort.forecast.df)
+prophet.resort.mdl %>% dyplot.prophet(
+  prophet.resort.forecast.df,
+  main = '<h style="color: black; font-size:18px;">Resort Hotel: Total Bookings 1 Month Prediction</h>'
+  ) %>%
+  dygraphs::dyOptions(
+    colors = c('darkorange','blue'),
+    pointSize = 2,
+    )
+
+
 
 #plot forecast components
 prophet.resort.mdl %>% prophet_plot_components(prophet.resort.forecast.df)
@@ -513,6 +527,7 @@ prophet.resort.mdl %>% prophet_plot_components(prophet.resort.forecast.df)
 ### City Hotel
 ```{r}
 library(prophet)
+# https://dygraphs.com/options.html
 
 #renaming cols to prophet's col conventions
 prophet.city.df = anomaly.hotel.city %>% select(ds = arrival.date, y = total.bookings)
@@ -533,7 +548,14 @@ prophet.city.forecast.df = prophet.city.mdl %>% predict(prophet.city.future.df)
 prophet.city.forecast.df %>% head %>% DT::datatable()
 
 #plot forecast
-prophet.city.mdl %>% dyplot.prophet(prophet.city.forecast.df)
+prophet.city.mdl %>% dyplot.prophet(
+  prophet.city.forecast.df,
+  main = '<h style="color: black; font-size:18px;">City Hotel: Total Bookings 1 Month Prediction</h>'
+  ) %>%
+  dygraphs::dyOptions(
+    colors = c('darkgreen','blue'),
+    pointSize = 2,
+    )
 
 #plot forecast components
 prophet.city.mdl %>% prophet_plot_components(prophet.city.forecast.df)
