@@ -67,7 +67,8 @@ a$is_canceled = NULL
 # Split Data
 
 ```{r}
-split = initial_split(a)
+set.seed(345)
+split = initial_split(a, strata = hotel)
 train = rsample::training(split)
 test = rsample::testing(split)
 ```
@@ -106,7 +107,10 @@ train = train %>% mutate(
     year = arrival_date_year,
     month = match(arrival_date_month, month.name),
     day = arrival_date_day_of_month)
-  )
+  ) %>% arrange(arrival.date)
+
+### will use this for later on
+train.anomaly = train
 
 # these numeric vars s/b factor vars
 train = train %>% mutate_at(vars(arrival_date_day_of_month, arrival_date_week_number, arrival_date_year, is_repeated_guest), factor)
@@ -441,7 +445,45 @@ train %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label =
 
 ```
 
-# Goal 1: Predict Number of Bookings by Hotel Type
+# Goal 1: Predict Number of Adult Bookings by Hotel Type
+
+### creating time series dataset
+
+<h style="color: blue; font-size:16px;">creating a separate time series ds for anomaly detection and predictions b/c time series ds needs to be split chronologically via 'initial_time_split', not randomly via 'initial_split'
+
+### create ts dataset, filter, and split
+```{r}
+#times series dataset
+ts =  a %>% na.omit %>% filter(
+  adults > 0,
+  children == 0
+) %>% mutate(
+  arrival.date = lubridate::make_date(
+      year = arrival_date_year,
+      month = match(arrival_date_month, month.name),
+      day = arrival_date_day_of_month
+  )) %>% group_by(arrival.date, hotel) %>% 
+  summarise(total.adult.bookings = sum(adults), .groups = 'drop') %>% 
+  arrange(arrival.date)
+  
+#---------------------------- city
+
+ts.city = ts %>% filter(hotel == 'City Hotel')
+ts.city$hotel = NULL
+ts.city.split = initial_time_split(ts.city)
+ts.city.train = training(ts.city.split)
+ts.city.test = testing(ts.city.split)
+
+#---------------------------- resort
+
+ts.resort = ts %>% filter(hotel == 'Resort Hotel')
+ts.resort$hotel = NULL
+ts.resort.split = initial_time_split(ts.resort)
+ts.resort.train = training(ts.resort.split)
+ts.resort.test = testing(ts.resort.split)
+
+```
+
 
 ## Anomaly Detection
 ```{r warning=FALSE, message=FALSE}
@@ -454,34 +496,16 @@ library(anomalize)
 
 # The STL method uses the stl() function from the stats package. STL works very well in circumstances where a long term trend is present (which applies in this case; see trend component in the prophet graphs below'). 
   
-#use full data set, filter to hotel type, arrange by date
-a1 = a %>% mutate(
-  arrival.date = make_date(
-    year = arrival_date_year,
-    month = match(arrival_date_month, month.name),
-    day = arrival_date_day_of_month)
-  )
-
-(anomaly.hotel.resort = a1 %>% filter(hotel == 'Resort Hotel') %>% 
-  group_by(arrival.date, hotel) %>% 
-  summarise(total.bookings = sum(adults, children)) %>% 
-  select(arrival.date, hotel, total.bookings) %>% 
-  arrange(arrival.date) %>% as.tibble() %>% 
-  time_decompose(total.bookings, method = 'stl', merge = TRUE) %>%
-  anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
-  time_recompose())
-
-(anomaly.hotel.city = a1 %>% filter(hotel == 'City Hotel') %>% 
-  group_by(arrival.date, hotel) %>% 
-  summarise(total.bookings = sum(adults, children)) %>% 
-  select(arrival.date, hotel, total.bookings) %>% 
-  arrange(arrival.date) %>% as.tibble() %>% 
-  time_decompose(total.bookings, method = 'stl', merge = TRUE) %>%
+(ts.city.train %>% as.tibble() %>% 
+  time_decompose(total.adult.bookings, method = 'stl', merge = TRUE) %>%
   anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
   time_recompose())
 
 ggplotly(
-  anomaly.hotel.resort %>% 
+  ts.city.train %>% as.tibble() %>% 
+  time_decompose(total.adult.bookings, method = 'stl', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
+  time_recompose() %>% 
     plot_anomalies(
       ncol = 2,
       alpha_dots = 0.5,
@@ -490,11 +514,21 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'total.bookings', title = 'resort hotel total.bookings')
+    labs(x = '', y = 'total.bookings', title = 'city hotel total.adult.bookings')
   )
 
+#----------------------------
+
+(ts.resort.train %>% as.tibble() %>% 
+  time_decompose(total.adult.bookings, method = 'stl', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
+  time_recompose())
+
 ggplotly(
-  anomaly.hotel.city %>% 
+  ts.resort.train %>% as.tibble() %>% 
+  time_decompose(total.adult.bookings, method = 'stl', merge = TRUE) %>%
+  anomalize(remainder, alpha = 0.15, method = 'gesd') %>% #increasing sensitivity to outliers
+  time_recompose() %>% 
     plot_anomalies(
       ncol = 2,
       alpha_dots = 0.5,
@@ -503,54 +537,13 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'total.bookings', title = 'city hotel total.bookings')
+    labs(x = '', y = 'total.bookings', title = 'resort hotel total.adult.bookings')
   )
   
 
 ```
 
-## Predicting Next 2 Wks Total Bookings
-
-### Resort Hotel
-```{r warning=FALSE, message=FALSE}
-library(prophet)
-library(dygraphs)
-# https://dygraphs.com/options.html
-
-#renaming cols to prophet's col conventions
-prophet.resort.df = anomaly.hotel.resort %>% select(ds = arrival.date, y = total.bookings)
-
-#creating model
-prophet.resort.mdl = prophet.resort.df %>% prophet()
-
-#using model make future period df
-prophet.resort.future.df = prophet.resort.mdl %>% make_future_dataframe(
-  periods = 28, #next 4 wks
-  freq = 'day',
-  include_history = TRUE
-  )
-
-#make forecasts df
-prophet.resort.forecast.df = prophet.resort.mdl %>% predict(prophet.resort.future.df)
-
-prophet.resort.forecast.df %>% head %>% DT::datatable()
-
-#plot forecast
-prophet.resort.mdl %>% dyplot.prophet(
-  prophet.resort.forecast.df,
-  main = '<h style="color: black; font-size:18px;">Resort Hotel: Total Bookings 1 Month Prediction</h>'
-  ) %>%
-  dygraphs::dyOptions(
-    colors = c('darkorange','blue'),
-    pointSize = 2,
-    )
-
-
-
-#plot forecast components
-prophet.resort.mdl %>% prophet_plot_components(prophet.resort.forecast.df)
-
-```
+## Predicting Next 2 Wks Total Adult Bookings by Hotel Type
 
 ### City Hotel
 ```{r}
@@ -558,10 +551,10 @@ library(prophet)
 # https://dygraphs.com/options.html
 
 #renaming cols to prophet's col conventions
-prophet.city.df = anomaly.hotel.city %>% select(ds = arrival.date, y = total.bookings)
+prophet.city.df = ts.city.train %>% select(ds = arrival.date, y = total.adult.bookings)
 
 #creating model
-prophet.city.mdl = prophet.city.df %>% prophet()
+prophet.city.mdl = prophet.city.df %>% prophet(yearly.seasonality = TRUE)
 
 #using model make future period df
 prophet.city.future.df = prophet.city.mdl %>% make_future_dataframe(
@@ -578,7 +571,7 @@ prophet.city.forecast.df %>% head %>% DT::datatable()
 #plot forecast
 prophet.city.mdl %>% dyplot.prophet(
   prophet.city.forecast.df,
-  main = '<h style="color: black; font-size:18px;">City Hotel: Total Bookings 1 Month Prediction</h>'
+  main = '<h style="color: black; font-size:18px;">City Hotel: Total Adults 1 Month Prediction</h>'
   ) %>%
   dygraphs::dyOptions(
     colors = c('darkgreen','blue'),
@@ -590,8 +583,81 @@ prophet.city.mdl %>% prophet_plot_components(prophet.city.forecast.df)
 
 ```
 
+### measure model performance - city
+```{r}
+prophet.city.preds.truth = tibble(
+  arrival.date = ts.city.test %>% pull(arrival.date) %>% head(28),
+  truth =  ts.city.test %>% pull(total.adult.bookings) %>% head(28),
+  estimate = prophet.city.forecast.df %>% pull(yhat) %>% tail(28)
+)
 
+bind_rows(
+prophet.city.preds.truth %>% yardstick::rmse(truth = truth, estimate = estimate),
+prophet.city.preds.truth %>% yardstick::mae(truth = truth, estimate = estimate)
+)
 
+prophet.city.preds.truth %>% ggplot(aes(estimate, truth)) + geom_point() + geom_abline(intercept = 0, slope = 1, col = 'darkblue', lty = 2, size = 1.2)
+```
 
+<h style="color: blue; font-size:16px;">For the resort hotels, on average, our predictions are off by 28 adults</h>
 
+### Resort Hotel
+```{r}
+library(prophet)
+# https://dygraphs.com/options.html
 
+#renaming cols to prophet's col conventions
+prophet.resort.df = ts.resort.train %>% select(ds = arrival.date, y = total.adult.bookings)
+
+#creating model
+prophet.resort.mdl = prophet.resort.df %>% prophet(yearly.seasonality = TRUE)
+
+#using model make future period df
+prophet.resort.future.df = prophet.resort.mdl %>% make_future_dataframe(
+  periods = 28, #next 4 wks
+  freq = 'day',
+  include_history = TRUE
+  )
+
+#make forecasts df
+prophet.resort.forecast.df = prophet.resort.mdl %>% predict(prophet.resort.future.df)
+
+prophet.resort.forecast.df %>% head %>% DT::datatable()
+
+#plot forecast
+prophet.resort.mdl %>% dyplot.prophet(
+  prophet.resort.forecast.df,
+  main = '<h style="color: black; font-size:18px;">Resort Hotel: Total Adults 1 Month Prediction</h>'
+  ) %>%
+  dygraphs::dyOptions(
+    colors = c('darkorange','blue'),
+    pointSize = 2,
+    )
+
+#plot forecast components
+prophet.resort.mdl %>% prophet_plot_components(prophet.resort.forecast.df)
+
+```
+
+### measure model performance - resort
+```{r}
+prophet.resort.preds.truth = tibble(
+  arrival.date = ts.resort.test %>% pull(arrival.date) %>% head(28),
+  truth =  ts.resort.test %>% pull(total.adult.bookings) %>% head(28),
+  estimate = prophet.resort.forecast.df %>% pull(yhat) %>% tail(28)
+)
+
+bind_rows(
+prophet.resort.preds.truth %>% yardstick::rmse(truth = truth, estimate = estimate),
+prophet.resort.preds.truth %>% yardstick::mae(truth = truth, estimate = estimate)
+)
+
+prophet.resort.preds.truth %>% ggplot(aes(estimate, truth)) + geom_point() + geom_abline(intercept = 0, slope = 1, col = 'darkorange', lty = 2, size = 1.2)
+```
+
+<h style="color: blue; font-size:16px;">For the resort hotels, on average, our predictions are off by 24 adults</h>
+
+# Comments
+
+1. Maybe it's easier to predict number of bookings as opposed to number of adults (one booking can have one or more adults)?
+1. Maybe we should predict by month, not day?
