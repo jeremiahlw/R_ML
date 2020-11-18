@@ -38,7 +38,8 @@ library(tidymodels);library(h2o)
 
 # Business Goals
 
-1. Predict the number of bookings for the resort and city hotels for the next 4 weeks
+1. Predict the number of adults for the resort and city hotels for the next 4 weeks
+    + Note: one booking can be for multiple adults, so aggregate accordingly
 2. Classify a booking as a resort or city type
 3. Predict average daily rate (adr) prices based on other features
 
@@ -144,13 +145,13 @@ paste(
 ### time series graph -- ungrouped
 ```{r message=FALSE, warning=FALSE, out.width= 1000}
 train %>% group_by(arrival.date) %>% 
-  summarise(total.bookings = sum(adults, children)) %>% 
+  summarise(total.individuals = sum(adults, children)) %>% 
   arrange(arrival.date) %>%
   plot_ly(
     x = ~arrival.date,
-    y = ~total.bookings
+    y = ~total.individuals
   ) %>% layout(
-    title = 'total.bookings by date',
+    title = 'total.individuals by date',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -159,15 +160,15 @@ train %>% group_by(arrival.date) %>%
 ### time series graph -- grouped (hotel)
 ```{r message=FALSE, warning=FALSE, out.width= 1000}
 train %>% group_by(arrival.date, hotel) %>% 
-  summarise(total.bookings = sum(adults, children)) %>% 
+  summarise(total.individuals = sum(adults, children)) %>% 
   arrange(arrival.date) %>%
   plot_ly(
     x = ~arrival.date,
-    y = ~total.bookings,
+    y = ~total.individuals,
     color = ~hotel,
     alphtrain = 0.7
   )  %>% layout(
-    title = 'total.bookings by date/hotel',
+    title = 'total.individuals by date/hotel',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     ) 
@@ -176,15 +177,15 @@ train %>% group_by(arrival.date, hotel) %>%
 ### time series graph -- grouped (customer_type)
 ```{r message=FALSE, warning=FALSE, out.width= 1000}
 train %>% group_by(arrival.date, customer_type) %>% 
-  summarise(total.bookings = sum(adults, children)) %>%  
+  summarise(total.individuals = sum(adults, children)) %>%  
   arrange(arrival.date) %>%
   plot_ly(
     x = ~arrival.date,
-    y = ~total.bookings,
+    y = ~total.individuals,
     color = ~customer_type,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'total.bookings by date/customer_type',
+    title = 'total.individuals by date/customer_type',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -193,15 +194,15 @@ train %>% group_by(arrival.date, customer_type) %>%
 ### time series graph -- grouped (deposit_type)
 ```{r message=FALSE, warning=FALSE, out.width= 1000}
 train %>% group_by(arrival.date, deposit_type) %>% 
-  summarise(total.bookings = sum(adults, children)) %>%   
+  summarise(total.individuals = sum(adults, children)) %>%   
   arrange(arrival.date) %>%
   plot_ly(
     x = ~arrival.date,
-    y = ~total.bookings,
+    y = ~total.individuals,
     color = ~deposit_type,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'total.bookings by date/deposit_type',
+    title = 'total.individuals by date/deposit_type',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -210,15 +211,15 @@ train %>% group_by(arrival.date, deposit_type) %>%
 ### time series graph -- grouped (distribution_channel)
 ```{r message=FALSE, warning=FALSE, out.width= 1000}
 train %>% group_by(arrival.date, distribution_channel) %>% 
-  summarise(total.bookings = sum(adults, children)) %>%  
+  summarise(total.individuals = sum(adults, children)) %>%  
   arrange(arrival.date) %>%
   plot_ly(
     x = ~arrival.date,
-    y = ~total.bookings,
+    y = ~total.individuals,
     color = ~distribution_channel,
     alphtrain = 0.7
   ) %>% layout(
-    title = 'total.bookings by date/distribution_channel',
+    title = 'total.individuals by date/distribution_channel',
     xaxis = list(title = ''),
     yaxis = list(title = '')
     )
@@ -369,7 +370,7 @@ train %>% count(adults, children) %>% filter(children == 0) %>% summarise(total.
 train %>% count(adults, children) %>% filter(children == 0, adults == 0) %>% summarise(total.bookings.without.adults.and.children = sum(n))
 
 ```
-<h style="color: blue; font-size:16px;">There are very few bookings with children, but it's good to filter out to get the most accurate results.'</h>
+<h style="color: blue; font-size:16px;">There are very few bookings without adults, but it's good to filter out to get the most accurate results.'</h>
 
 ### percent of ds with only adult booking data
 ```{r}
@@ -385,8 +386,10 @@ train.adult.adrs = train %>% filter(adults > 0, children == 0)
 
 ### distribution ADR per child
 ```{r}
-train %>% filter(adults ==0, children >0) %>% mutate(adr.per.child = adr/children) %>% plot_ly(x = ~adr.per.child)  %>% add_boxplot()
+train %>% filter(adults == 0, children >0) %>% mutate(adr.per.child = adr/children) %>% plot_ly(x = ~adr.per.child)  %>% add_boxplot()
 ```
+
+<h style="color: blue; font-size:16px;">Median ADR per child is $43.54</h>
 
 ### create adr.per.adult var
 ```{r warning=FALSE, out.width= 1000}
@@ -435,6 +438,13 @@ library(DescTools)
 
 ```
 
+Observations
+
+1. On average, the Resort Hotel (\$40) is cheaper than the City Hotel (\$54)
+2. Not surprisingly, 'Direct' market segment customers pay more, while Group and Corporate customers pay less
+3. Not surprisingly, ADR rates are higher for the Resort Hotel in summer months
+
+
 ### correlations: viz
 ```{r}
 train %>% select(where(is.numeric)) %>% dlookr::plot_correlate()
@@ -445,7 +455,9 @@ train %>% select(where(is.numeric)) %>% GGally::ggcorr(palette = "RdBu", label =
 
 ```
 
-# Goal 1: Predict Number of Adult Bookings by Hotel Type
+# Goal 1: Predict Number of Adults by Hotel Type
+
+<h style="color: blue; font-size:16px;">Aggregating at the weekly level to smooth out daily fluctuations</h>
 
 ### creating time series dataset
 
@@ -462,9 +474,11 @@ ts =  a %>% na.omit %>% filter(
       year = arrival_date_year,
       month = match(arrival_date_month, month.name),
       day = arrival_date_day_of_month
-  )) %>% group_by(arrival.date, hotel) %>% 
+  )) %>% mutate(
+    arrival.week = floor_date(arrival.date, 'week', week_start = 7)
+  ) %>% group_by(arrival.week, hotel) %>% 
   summarise(total.adult.bookings = sum(adults), .groups = 'drop') %>% 
-  arrange(arrival.date)
+  arrange(arrival.week)
   
 #---------------------------- city
 
@@ -537,13 +551,13 @@ ggplotly(
       time_recomposed = TRUE,
       alpha_ribbon = 0.05
       ) + scale_y_continuous(labels = comma) +
-    labs(x = '', y = 'total.bookings', title = 'resort hotel total.adult.bookings')
+    labs(x = '', y = 'total.bookings', title = 'resort hotel total adults')
   )
   
 
 ```
 
-## Predicting Next 2 Wks Total Adult Bookings by Hotel Type
+## Predicting Next 4 Wks Total Adults by Hotel Type
 
 ### City Hotel
 ```{r}
@@ -551,15 +565,15 @@ library(prophet)
 # https://dygraphs.com/options.html
 
 #renaming cols to prophet's col conventions
-prophet.city.df = ts.city.train %>% select(ds = arrival.date, y = total.adult.bookings)
+prophet.city.df = ts.city.train %>% select(ds = arrival.week, y = total.adult.bookings)
 
 #creating model
 prophet.city.mdl = prophet.city.df %>% prophet(yearly.seasonality = TRUE)
 
 #using model make future period df
 prophet.city.future.df = prophet.city.mdl %>% make_future_dataframe(
-  periods = 28, #next 4 wks
-  freq = 'day',
+  periods = 4, #next 4 wks
+  freq = 'week',
   include_history = TRUE
   )
 
@@ -571,7 +585,7 @@ prophet.city.forecast.df %>% head %>% DT::datatable()
 #plot forecast
 prophet.city.mdl %>% dyplot.prophet(
   prophet.city.forecast.df,
-  main = '<h style="color: black; font-size:18px;">City Hotel: Total Adults 1 Month Prediction</h>'
+  main = '<h style="color: black; font-size:18px;">City Hotel: Total Adults 4 Week Prediction</h>'
   ) %>%
   dygraphs::dyOptions(
     colors = c('darkgreen','blue'),
@@ -585,21 +599,20 @@ prophet.city.mdl %>% prophet_plot_components(prophet.city.forecast.df)
 
 ### measure model performance - city
 ```{r}
-prophet.city.preds.truth = tibble(
-  arrival.date = ts.city.test %>% pull(arrival.date) %>% head(28),
-  truth =  ts.city.test %>% pull(total.adult.bookings) %>% head(28),
-  estimate = prophet.city.forecast.df %>% pull(yhat) %>% tail(28)
-)
+(prophet.city.preds.truth = tibble(
+  arrival.date = ts.city.test %>% pull(arrival.week) %>% head(4),
+  truth =  ts.city.test %>% pull(total.adult.bookings) %>% head(4),
+  estimate = prophet.city.forecast.df %>% pull(yhat) %>% tail(4)
+))
 
 bind_rows(
 prophet.city.preds.truth %>% yardstick::rmse(truth = truth, estimate = estimate),
 prophet.city.preds.truth %>% yardstick::mae(truth = truth, estimate = estimate)
 )
 
-prophet.city.preds.truth %>% ggplot(aes(estimate, truth)) + geom_point() + geom_abline(intercept = 0, slope = 1, col = 'darkblue', lty = 2, size = 1.2)
 ```
 
-<h style="color: blue; font-size:16px;">For the resort hotels, on average, our predictions are off by 28 adults</h>
+<h style="color: blue; font-size:16px;">On average, our weekly predictions are off by 89 adults</h>
 
 ### Resort Hotel
 ```{r}
@@ -607,15 +620,15 @@ library(prophet)
 # https://dygraphs.com/options.html
 
 #renaming cols to prophet's col conventions
-prophet.resort.df = ts.resort.train %>% select(ds = arrival.date, y = total.adult.bookings)
+prophet.resort.df = ts.resort.train %>% select(ds = arrival.week, y = total.adult.bookings)
 
 #creating model
 prophet.resort.mdl = prophet.resort.df %>% prophet(yearly.seasonality = TRUE)
 
 #using model make future period df
 prophet.resort.future.df = prophet.resort.mdl %>% make_future_dataframe(
-  periods = 28, #next 4 wks
-  freq = 'day',
+  periods = 4, #next 4 wks
+  freq = 'week',
   include_history = TRUE
   )
 
@@ -627,7 +640,7 @@ prophet.resort.forecast.df %>% head %>% DT::datatable()
 #plot forecast
 prophet.resort.mdl %>% dyplot.prophet(
   prophet.resort.forecast.df,
-  main = '<h style="color: black; font-size:18px;">Resort Hotel: Total Adults 1 Month Prediction</h>'
+  main = '<h style="color: black; font-size:18px;">Resort Hotel: Total Adults 4 Week Prediction</h>'
   ) %>%
   dygraphs::dyOptions(
     colors = c('darkorange','blue'),
@@ -639,25 +652,22 @@ prophet.resort.mdl %>% prophet_plot_components(prophet.resort.forecast.df)
 
 ```
 
-### measure model performance - resort
 ```{r}
-prophet.resort.preds.truth = tibble(
-  arrival.date = ts.resort.test %>% pull(arrival.date) %>% head(28),
-  truth =  ts.resort.test %>% pull(total.adult.bookings) %>% head(28),
-  estimate = prophet.resort.forecast.df %>% pull(yhat) %>% tail(28)
-)
+(prophet.resort.preds.truth = tibble(
+  arrival.date = ts.resort.test %>% pull(arrival.week) %>% head(4),
+  truth =  ts.resort.test %>% pull(total.adult.bookings) %>% head(4),
+  estimate = prophet.resort.forecast.df %>% pull(yhat) %>% tail(4)
+))
 
 bind_rows(
 prophet.resort.preds.truth %>% yardstick::rmse(truth = truth, estimate = estimate),
 prophet.resort.preds.truth %>% yardstick::mae(truth = truth, estimate = estimate)
 )
 
-prophet.resort.preds.truth %>% ggplot(aes(estimate, truth)) + geom_point() + geom_abline(intercept = 0, slope = 1, col = 'darkorange', lty = 2, size = 1.2)
 ```
 
-<h style="color: blue; font-size:16px;">For the resort hotels, on average, our predictions are off by 24 adults</h>
+<h style="color: blue; font-size:16px;">On average, our weekly predictions are off by 78 adults</h>
 
 # Comments
 
-1. Maybe it's easier to predict number of bookings as opposed to number of adults (one booking can have one or more adults)?
-1. Maybe we should predict by month, not day?
+1. 
