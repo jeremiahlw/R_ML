@@ -27,7 +27,7 @@ library(PerformanceAnalytics);
 library(plotly);library(RColorBrewer);library(readxl);
 library(skimr);library(tidyverse);library(scales)
 
-library(tidymodels);library(h2o)
+library(tidymodels)
 ```
 
 # Introduction
@@ -608,7 +608,6 @@ prophet.city.preds.truth %>% yardstick::mae(truth = truth, estimate = estimate)
 
 ```
 
-<h style="color: blue; font-size:16px;">On average, our weekly predictions are off by 89 adults</h>
 
 ### Resort Hotel
 ```{r}
@@ -662,17 +661,15 @@ prophet.resort.preds.truth %>% yardstick::mae(truth = truth, estimate = estimate
 
 ```
 
-<h style="color: blue; font-size:16px;">On average, our weekly predictions are off by 78 adults</h>
-
 # Goal 2: Predict ADR
 
 ## 1) Split Data
 ```{r}
 set.seed(345)
-split = initial_split(a %>% slice_sample(prop = 0.20), strata = hotel) ##!!<NOTE> change this later on to full ds, reducing size for testing purposes
+split = initial_split(a %>% slice_sample(prop = 0.20), strata = hotel) ##!!<NOTE> limiting data for speed purposes
 train = rsample::training(split)
 test = rsample::testing(split)
-vfolds = vfold_cv(train, v = 3)
+vfolds = vfold_cv(train, v = 10)
 ```
 
 ### level count for factor vars
@@ -716,11 +713,11 @@ tidy(recipe)
 ```{r}
 #'Using the recipe, prepare & bake the train ds'
 baked.train = recipe %>% prep() %>% bake(new_data = NULL) %>%
-  select(sort(tidyselect::peek_vars())) %>% select(where(is.factor),where(is.numeric))
+  select(sort(tidyselect::peek_vars()))
 
 #'Using the recipe, prepare & bake the test ds'
 baked.test = recipe %>% prep() %>% bake(new_data = test) %>%
-  select(sort(tidyselect::peek_vars())) %>% select(where(is.factor),where(is.numeric))
+  select(sort(tidyselect::peek_vars()))
 
 baked.train %>% head() %>% DT::datatable()
 baked.test %>% head %>% DT::datatable()
@@ -733,7 +730,7 @@ baked.train %>% select(agent, company, country) %>% map(fct_count, sort = TRUE)
 ```
 
 # Simple Modeling
-```{r eval=FALSE}
+```{r eval=TRUE}
 doParallel::registerDoParallel() #use parallel processing
 
 #!!<NOTE> to analyze var importance, you need an importance arg
@@ -821,7 +818,7 @@ rf.tg %>% collect_metrics()
 ```
 
 ### viz results
-```{r}
+```{r warning=FALSE}
 
 ggplotly(
 rf.tg %>%
@@ -901,7 +898,7 @@ rf.tg %>%
   
 ```
 
-###  6) choose best model
+###  6) choose best hps
 ```{r}
 (rf.best.hps = select_best(rf.tg, 'rmse'))
 ```
@@ -922,23 +919,37 @@ rf.wf.fin = workflow() %>%
   add_model(rf.mdl.fin)
 
 #fit on ENTIRE train, execute on test, evaluate results
-rf.res.final = rf.wf.fin %>% 
+rf.final = rf.wf.fin %>% 
   last_fit(split)
 
-#check results
-rf.res.final %>% collect_metrics()
+#check results (standard metrics)
+rf.final %>% collect_metrics()
+```
+### Evaluate additional metrics
+```{r}
+rf.final.results = rf.final %>% collect_predictions() %>% select(.pred, adr)
+
+rf.metric.set = metric_set(rmse, rsq, mae)
+
+rf.metric.set(rf.final.results, truth = adr, estimate = .pred)
+
 ```
 
 ### 10) Examine var imp (test)
 ```{r}
-rf.res.final %>% 
+rf.final %>% 
   pluck(".workflow", 1) %>%   
   pull_workflow_fit() %>% 
   vip::vip(num_features = 10)
 
 ```
 
+Observations:
 
+1. Due to seasonality, it's not surprising how date vars ranking highly in var importance
+2. Reserved Room type is also self-explanatory
+3. Ditto for market segment (e.g. Group rates are cheaper than Impromptu 'Transient' bookings)
+4. Interestingly, type of hotel (City, Resort) is ~equal in var imp. to type of agent
 
 
 
