@@ -1,0 +1,478 @@
+---
+title: "Predicting ADR Prices by Hotel Type"
+subtitle: 'Machine Learning: Supervised - Elastic Net'
+author: 'Jeremiah Wang'
+date: "November 2020"
+output:
+  html_document:
+    theme: paper
+    highlight: breezedark
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(GGally);library(here);
+library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);
+library(plotly);library(RColorBrewer);library(readxl);
+library(skimr);library(tidyverse);library(scales)
+
+library(tidymodels)
+```
+
+
+# Get Data
+
+```{r message=FALSE}
+a = read_csv('hotel_bookings.csv') %>%
+  clean_names() %>% 
+  mutate(across(where(is.character), factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is.numeric)
+  ) %>% filter(is_canceled == 0) #filter to non-canceled bookings
+
+a$is_canceled = NULL
+a$reservation_status_date = NULL
+```
+
+### sample data
+```{r}
+a %>% sample_n(10)
+```
+
+### check for missing values
+```{r}
+a %>% miss_var_summary()
+```
+
+<h style="color: red; font-size:24px;">For Thorough EDA, check out my other publication *'Predicting Hotel Bookings & Prices'*'</h>
+
+### filter to 2 datasets: resort hotel, and city hotel
+```{r}
+r = a %>% filter(hotel == 'Resort Hotel')
+c = a %>% filter(hotel == 'City Hotel') 
+```
+
+### removing useless cols
+```{r}
+r$hotel = NULL
+c$hotel = NULL
+```
+
+
+# City Hotels: Tidy Split -> Prep -> Process
+
+## 1) Split Data
+```{r}
+set.seed(345)
+c.split = initial_split(c %>% slice_sample(prop = 0.20)) ##!!<NOTE> limiting data for speed purposes
+c.train = rsample::training(c.split)
+c.test = rsample::testing(c.split)
+c.vfolds = vfold_cv(c.train, v = 5)
+```
+
+## 2) Create recipe
+```{r}
+# Documentation: https://www.rdocumentation.org/packages/recipes/versions/0.1.14
+
+#a recipe is used for preprocessing
+c.recipe = c.train %>% recipe(adr ~ . ) %>%
+  #----------------------------
+  step_mutate(
+   arrival.date = lubridate::make_date(
+     arrival_date_year,
+     match(arrival_date_month, month.name),
+     arrival_date_day_of_month
+     )
+   ) %>%
+  step_mutate(
+    arrival.date = arrival.date %>% as.character %>% stringr::str_replace_all('-','') %>% as.numeric
+  ) %>%
+    step_mutate(
+    arrival_date_month = match(arrival_date_month, month.name)
+  ) %>% 
+  #----------------------------
+  #remove vars with low or now correlation
+  step_corr(all_numeric(),-all_outcomes()) %>% 
+  #remove vars with low or no variance
+  step_nzv(all_numeric(),-all_outcomes()) %>% 
+  step_zv(all_numeric(),-all_outcomes()) %>%
+  #----------------------------
+  #reduce number of levels for factors with many, many levels
+  step_other(agent, company, country) %>%  #default threshold of 0.05
+  #----------------------------
+  #create dummy vars
+  step_dummy(
+    agent, assigned_room_type, company,
+    country, customer_type, deposit_type,
+    distribution_channel, market_segment, meal,
+    reservation_status, reserved_room_type
+    ) %>% 
+  #----------------------------
+  step_normalize(stays_in_weekend_nights, stays_in_week_nights) %>% #prob not necessary b/c both vars are already scaled the same, but doing so anyway to develop good habits
+  step_pca(stays_in_weekend_nights, stays_in_week_nights, num_comp = 1) #will limit to PC1 only
+  
+c.recipe %>% tidy
+```
+### check interaction of recipe with vars
+```{r}
+(c.recipe %>% prep)
+```
+
+## 3) Preprocess train & test
+```{r}
+#'Using the recipe, prepare & bake the train ds'
+c.baked.train = c.recipe %>% prep() %>% bake(new_data = NULL) %>%
+  select(sort(tidyselect::peek_vars()))
+
+#'Using the recipe, prepare & bake the test ds'
+c.baked.test = c.recipe %>% prep() %>% bake(new_data = c.test) %>%
+  select(sort(tidyselect::peek_vars()))
+
+c.baked.train %>% head() %>% DT::datatable()
+c.baked.test %>% head %>% DT::datatable()
+
+```
+
+
+```{r}
+c.baked.train %>% miss_var_summary()
+c.baked.train %>% glimpse
+```
+
+# City Hotels: TidyModeling
+
+<h style="color: blue; font-size:16px;">en = 'elastic net'</h>
+
+### 1) Create model *Specification* w/hps to be tuned
+```{r}
+#hyperparameters with a value of 'tune()' are those we will 'tune'
+c.en.mdl = parsnip::linear_reg(
+  penalty = tune(), 
+  mixture = tune() #lasso / ridge mix
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('glmnet')
+```
+
+### 2) Create workflow *Specification*
+```{r}
+#create workflow (pipeline) combining recipe (preprocessing) and model (w/hps)
+c.en.wf = workflow() %>% 
+  add_recipe(c.recipe) %>% 
+  add_model(c.en.mdl)
+```
+
+
+### 3) Execute model & workflow on vfold ds using **auto**-hps *Execution*
+```{r}
+doParallel::registerDoParallel() #use parallel processing
+set.seed(345)
+
+c.en.tg = tune_grid(
+  c.en.wf,
+  resamples = c.vfolds,
+  grid = 10) #Create a tuning grid AUTOMATICALLY
+
+c.en.tg
+
+c.en.tg %>% collect_metrics()
+```
+
+### viz results
+```{r warning=FALSE}
+ggplotly(
+c.en.tg %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  select(mean, penalty, mixture) %>%
+  pivot_longer(penalty:mixture,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE, size = 3) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "RMSE")
+)
+
+c.en.tg %>%
+  collect_metrics() %>% 
+  filter(.metric == 'rmse') %>% 
+  select(mean, penalty, mixture, .config) %>% 
+  arrange(mean)
+```
+
+### 4) Create & Viz manual tuning grids 
+```{r eval=FALSE}
+
+en.params <- parameters(penalty(), mixture())
+
+(en.gr <- grid_regular(en.params, levels = c(5, 5)))
+
+(en.me <- grid_max_entropy(en.params, size = 15)) # creates a SFD (space filling design grid), keeps param combinations as far away from each other
+
+en.gr %>% 
+  ggplot(aes(x = mixture, y = penalty)) +
+  geom_point() +
+  scale_y_log10()
+
+
+en.me %>% 
+  ggplot(aes(x = mixture, y = penalty)) +
+  geom_point() +
+  scale_y_log10()
+```
+
+###  5) choose best hps
+```{r}
+(c.en.best.hps = select_best(c.en.tg, 'rmse'))
+```
+
+### 7) finalize model
+```{r}
+c.en.mdl.fin = finalize_model(
+  x = c.en.mdl, #the model spec
+  parameters = c.en.best.hps
+)
+```
+
+### 9) Create final workflow, Execute on test, Evaluate results
+```{r}
+#create final workflow
+c.en.wf.fin = workflow() %>% 
+  add_recipe(c.recipe) %>% 
+  add_model(c.en.mdl.fin)
+
+#fit on ENTIRE train, execute on test, evaluate results
+c.en.final = c.en.wf.fin %>% 
+  last_fit(c.split)
+
+#check results (standard metrics)
+c.en.final %>% collect_metrics()
+```
+
+### Evaluate additional metrics
+```{r}
+c.en.final.results = c.en.final %>% collect_predictions() %>% select(.pred, adr)
+
+c.en.metric.set = metric_set(rmse, rsq, mae)
+
+c.en.metric.set(c.en.final.results, truth = adr, estimate = .pred)
+
+```
+
+# Resort Hotels: Tidy Split -> Prep -> Process
+
+## 1) Split Data
+```{r}
+set.seed(345)
+r.split = initial_split(r %>% slice_sample(prop = 0.20)) ##!!<NOTE> limiting data for speed purposes
+r.train = rsample::training(r.split)
+r.test = rsample::testing(r.split)
+r.vfolds = vfold_cv(r.train, v = 5)
+```
+
+## 2) Create recipe
+```{r}
+# Documentation: https://www.rdocumentation.org/packages/recipes/versions/0.1.14
+
+#a recipe is used for preprocessing
+r.recipe = r.train %>% recipe(adr ~ . ) %>%
+  #----------------------------
+  step_mutate(
+   arrival.date = lubridate::make_date(
+     arrival_date_year,
+     match(arrival_date_month, month.name),
+     arrival_date_day_of_month
+     )
+   ) %>%
+  step_mutate(
+    arrival.date = arrival.date %>% as.character %>% stringr::str_replace_all('-','') %>% as.numeric
+  ) %>%
+    step_mutate(
+    arrival_date_month = match(arrival_date_month, month.name)
+  ) %>% 
+  #----------------------------
+  #remove vars with low or now correlation
+  step_corr(all_numeric(),-all_outcomes()) %>% 
+  #remove vars with low or no variance
+  step_nzv(all_numeric(),-all_outcomes()) %>% 
+  step_zv(all_numeric(),-all_outcomes()) %>%
+  #----------------------------
+  #reduce number of levels for factors with many, many levels
+  step_other(agent, company, country) %>%  #default threshold of 0.05
+  #----------------------------
+  #create dummy vars
+  step_dummy(
+    agent, assigned_room_type, company,
+    country, customer_type, deposit_type,
+    distribution_channel, market_segment, meal,
+    reservation_status, reserved_room_type
+    ) %>% 
+  #----------------------------
+  step_normalize(stays_in_weekend_nights, stays_in_week_nights) %>% #prob not necessary b/c both vars are already scaled the same, but doing so anyway to develop good habits
+  step_pca(stays_in_weekend_nights, stays_in_week_nights, num_comp = 1) #will limit to PC1 only
+  
+r.recipe %>% tidy
+```
+### check interaction of recipe with vars
+```{r}
+(r.recipe %>% prep)
+```
+
+## 3) Preprocess train & test
+```{r}
+#'Using the recipe, prepare & bake the train ds'
+r.baked.train = r.recipe %>% prep() %>% bake(new_data = NULL) %>%
+  select(sort(tidyselect::peek_vars()))
+
+#'Using the recipe, prepare & bake the test ds'
+r.baked.test = r.recipe %>% prep() %>% bake(new_data = r.test) %>%
+  select(sort(tidyselect::peek_vars()))
+
+r.baked.train %>% head() %>% DT::datatable()
+r.baked.test %>% head %>% DT::datatable()
+
+```
+
+
+```{r}
+r.baked.train %>% miss_var_summary()
+r.baked.train %>% glimpse
+```
+
+# Resort Hotels: TidyModeling
+
+<h style="color: blue; font-size:16px;">en = 'elastic net'</h>
+
+### 1) Create model *Specification* w/hps to be tuned
+```{r}
+#hyperparameters with a value of 'tune()' are those we will 'tune'
+r.en.mdl = parsnip::linear_reg(
+  penalty = tune(), 
+  mixture = tune() #lasso / ridge mix
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('glmnet')
+```
+
+### 2) Create workflow *Specification*
+```{r}
+#create workflow (pipeline) combining recipe (preprocessing) and model (w/hps)
+r.en.wf = workflow() %>% 
+  add_recipe(r.recipe) %>% 
+  add_model(r.en.mdl)
+```
+
+
+### 3) Execute model & workflow on vfold ds using **auto**-hps *Execution*
+```{r}
+doParallel::registerDoParallel() #use parallel processing
+set.seed(345)
+
+r.en.tg = tune_grid(
+  r.en.wf,
+  resamples = r.vfolds,
+  grid = 10) #Create a tuning grid AUTOMATICALLY
+
+r.en.tg
+
+r.en.tg %>% collect_metrics()
+```
+
+### viz results
+```{r warning=FALSE}
+ggplotly(
+r.en.tg %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  select(mean, penalty, mixture) %>%
+  pivot_longer(penalty:mixture,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE, size = 3) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "RMSE")
+)
+
+r.en.tg %>%
+  collect_metrics() %>% 
+  filter(.metric == 'rmse') %>% 
+  select(mean, penalty, mixture, .config) %>% 
+  arrange(mean)
+```
+
+### 4) Create & Viz manual tuning grids 
+```{r eval=FALSE}
+
+en.params <- parameters(penalty(), mixture())
+
+(en.gr <- grid_regular(en.params, levels = c(5, 5)))
+
+(en.me <- grid_max_entropy(en.params, size = 15)) # creates a SFD (space filling design grid), keeps param combinations as far away from each other
+
+en.gr %>% 
+  ggplot(aes(x = mixture, y = penalty)) +
+  geom_point() +
+  scale_y_log10()
+
+
+en.me %>% 
+  ggplot(aes(x = mixture, y = penalty)) +
+  geom_point() +
+  scale_y_log10()
+```
+
+###  5) choose best hps
+```{r}
+(r.en.best.hps = select_best(r.en.tg, 'rmse'))
+```
+
+### 7) finalize model
+```{r}
+r.en.mdl.fin = finalize_model(
+  x = r.en.mdl, #the model spec
+  parameters = r.en.best.hps
+)
+```
+
+### 9) Create final workflow, Execute on test, Evaluate results
+```{r}
+#create final workflow
+r.en.wf.fin = workflow() %>% 
+  add_recipe(r.recipe) %>% 
+  add_model(r.en.mdl.fin)
+
+#fit on ENTIRE train, execute on test, evaluate results
+r.en.final = r.en.wf.fin %>% 
+  last_fit(r.split)
+
+#check results (standard metrics)
+r.en.final %>% collect_metrics()
+```
+
+### Evaluate additional metrics
+```{r}
+r.en.final.results = r.en.final %>% collect_predictions() %>% select(.pred, adr)
+
+r.en.metrir.set = metric_set(rmse, rsq, mae)
+
+r.en.metrir.set(r.en.final.results, truth = adr, estimate = .pred)
+
+```
