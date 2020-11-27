@@ -1,0 +1,64 @@
+---
+title: "RF imputation - TidyModel's Recipe"
+output: html_document
+---
+  
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+```
+
+# load missRanger
+```{r}
+#Reference: https://cran.r-project.org/web/packages/missRanger/vignettes/vignette_missRanger.html
+
+#install.packages('missRanger')
+library(missRanger)
+set.seed(345)
+```
+# get dataset
+```{r}
+a = diamonds %>% slice_sample(prop = 0.05)
+
+#convert nom vars to dummy
+library(tidymodels)
+
+a.rec = a %>% recipe(price ~ . ) %>% step_dummy(all_predictors(), one_hot = TRUE)
+a = a.rec %>% prep %>% juice
+
+a.miss = generateNA(a, p = .20) #generate same datset with 20% missing vals
+
+```
+
+# sample datasets
+```{r}
+a %>% head
+```
+
+```{r}
+a.miss %>% head
+```
+
+
+# impute ALL missing vals
+```{r}
+#can accept predictors that have missing values themselves.
+#can be used when the variable of interest (and predictors) are numeric or categorical.
+#imputed categorical variables will remain categorical.
+#integers will be imputed to integer too.
+
+a.miss.rec = a.miss %>% recipe(price ~ . ) %>% step_bagimpute(all_predictors())
+
+a.miss.rec %>% prep %>% juice %>% head
+```
+
+# impute ONLY missing 'price' vals
+```{r}
+#set the pmm.k argument to a positive number. All imputations done during the process are then combined with a predictive mean matching (PMM) step, leading to more natural imputations and improved distributional properties of the resulting values
+
+a.miss %>% missRanger(formula = price ~ . , pmm.k = 2, num.trees = 100, , min.node.size = 50) %>% head
+```
