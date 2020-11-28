@@ -1,0 +1,258 @@
+---
+title: "AirBnB EDA"
+author: 'Jeremiah Wang'
+date: " 
+format(Sys.Date(), '%B %d %Y') "
+output:
+  html_document:
+    theme: simplex
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+```
+
+# Intro
+
+[Check this Kaggle](https://www.kaggle.com/dgomonov/new-york-city-airbnb-open-data)
+
+
+Inspiration
+1. What can we learn about different hosts and areas?
+2. What can we learn from predictions? (ex: locations, prices, reviews, etc)
+3. Which hosts are the busiest and why?
+4. Is there any noticeable difference of traffic among different areas and what could be the reason for it?
+
+# Get & Split Data
+```{r}
+a = read_csv('airbnb.csv') %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character), factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is_character),
+    where(is_numeric)
+  )
+
+a %>% sample_n(10)
+```
+
+# 5 min EDA
+
+### viz missing
+```{r}
+a %>% visdat::vis_dat()
+```
+
+### check missing, na, inf
+```{r}
+a %>% funModeling::status()
+```
+
+# Wrangling / Cleaning
+```{r}
+#drop unecessary cols
+a$name = NULL
+a$host_name = NULL
+a$host_id = NULL
+a$id = NULL
+
+#collapse/lump excessive factor levels
+a = a %>% mutate(neighbourhood = fct_lump_prop(neighbourhood, prop = 0.02))
+```
+
+# EDA: nom vars
+
+### names
+```{r}
+(nom.vars = a %>% select(where(is.factor)) %>% colnames %>% as.character)
+```
+
+```{r}
+tibble(
+  index = seq_along(nom.vars),
+  var.name = nom.vars
+)
+```
+
+### check missing
+```{r}
+a %>% select(nom.vars) %>% miss_var_summary
+```
+
+### sample
+```{r}
+a %>% select(nom.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(nom.vars) %>% skim_without_charts()
+```
+
+### viz: level counts distribution
+```{r}
+a %>% select(nom.vars) %>% map(n_unique) %>% as.data.frame.list %>% pivot_longer(everything()) %>% mutate(name = fct_reorder(name, value)) %>% plot_ly(x = ~value, y = ~name, color = ~name) %>% hide_legend() %>% layout(title = 'factor vars level counts', xaxis = list(title = 'count'), yaxis = list(title = ''))
+
+a %>% select(nom.vars) %>% funModeling::freq()
+```
+
+### viz: mosaic plots: ggpairs
+```{r fig.width=12, fig.height=9}
+#documentation: https://mran.microsoft.com/snapshot/2016-01-12/web/packages/GGally/vignettes/ggpairs.html
+
+a %>% select(nom.vars) %>% 
+  GGally::ggpairs(
+    columns = c(nom.vars[2], nom.vars[3]),
+    mapping = aes(color = eval(as.name(nom.vars[2])))
+)
+
+```
+
+# EDA: num vars
+
+### names
+```{r}
+(num.vars = a %>% select(where(is.numeric)) %>% colnames %>% as.character)
+```
+
+```{r}
+tibble(
+  index = seq_along(num.vars),
+  var.name = num.vars
+)
+```
+
+### check missing
+```{r}
+a %>% select(num.vars) %>% miss_var_summary
+```
+
+### sample
+```{r}
+a %>% select(num.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(num.vars) %>% skim_without_charts()
+```
+
+### viz: distribution - hist
+```{r}
+a %>% select(num.vars) %>% DataExplorer::plot_histogram(
+  scale_x = 'log10',
+  #geom_histogram_args = list(bins = 50L),
+  ncol = 2, nrow = 1
+)
+```
+
+### viz: distribution - density
+```{r}
+a %>% select(num.vars) %>% DataExplorer::plot_density(
+  scale_x = 'log10',
+  #geom_histogram_args = list(bins = 50L),
+  ncol = 2, nrow = 1
+)
+```
+
+### viz: outliers
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_outlier()
+```
+
+### viz: normality
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_normality()
+```
+
+### viz: correlations
+
+```{r fig.width= 12, fig.height=9}
+a %>% select(num.vars) %>% visdat::vis_cor()
+
+a %>% select(num.vars) %>% dlookr::plot_correlate()
+
+a %>% select(num.vars) %>% GGally::ggcorr(low = 'red', high = 'darkgreen', label = TRUE)
+```
+
+# EDA: nom/num vars
+
+```{r}
+target.var = 'price'
+```
+### viz: cor w/target - pearson
+```{r}
+a %>% select(num.vars) %>% funModeling::correlation_table(target = target.var)
+```
+### viz: cor w/target - info.theory
+```{r}
+var.imp = a %>% slice_sample(prop = 0.05) %>%  funModeling::var_rank_info(target = target.var)
+
+# gr = gain ratio
+var.imp %>% ggplot(aes(
+  y = reorder(var, gr),
+  x = gr,
+  fill = var
+  )) + 
+  geom_col() +
+  theme_light() +
+  labs(
+    x = '',
+    y = 'Var Imp based on Info Gain'
+  ) + guides(fill = FALSE)
+```
+### feature engineering a binary var for viz below
+```{r}
+a = a %>% mutate(
+  availability.gte.50.pct.flg = if_else(
+    availability_365 >= 182, 'yes', 'no'
+  )
+)
+
+a %>% head
+```
+
+
+### viz: cross plot - input/target distribution
+```{r}
+### useful when outcome var is a binary var
+a %>% funModeling::cross_plot(
+  input = nom.vars,
+  target = "availability.gte.50.pct.flg"
+  )
+```
+
+### quick analysis: binary target
+```{r}
+#This function is used to analyze data when we need to reduce variable cardinality in predictive modeling.
+#works in conjunction with 'cross_plot'; (e.g. 28 percent of Nintendo games made in in the subset of games in the 95th ptile of global sales or higher)
+a %>% funModeling::categ_analysis(
+    input = nom.vars[2],
+    target = 'availability.gte.50.pct.flg'
+  )
+```
+
+# Other
+### discretization: num > nom
+### outlier handling: prep_outliers
