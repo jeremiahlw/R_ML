@@ -1,0 +1,363 @@
+---
+title: "Housing Prices"
+subtitle: "Predicting Housing Prices using RF, ENET, XGBST"
+author: 'Jeremiah Wang'
+date: "December 2020"
+output:
+  html_document:
+    theme: simplex
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+```
+
+# Intro
+
+[Check this Kaggle](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data)
+
+# Data Dic
+```{r}
+SalePrice - the property's sale price in dollars. This is the target variable that you're trying to predict.
+1stFlrSF: First Floor square feet
+2ndFlrSF: Second floor square feet
+3SsnPorch: Three season porch area in square feet
+Alley: Type of alley access
+Bedroom: Number of bedrooms above basement level
+BldgType: Type of dwelling
+BsmtCond: General condition of the basement
+BsmtExposure: Walkout or garden level basement walls
+BsmtFinSF1: Type 1 finished square feet
+BsmtFinSF2: Type 2 finished square feet
+BsmtFinType1: Quality of basement finished area
+BsmtFinType2: Quality of second finished area (if present)
+BsmtFullBath: Basement full bathrooms
+BsmtHalfBath: Basement half bathrooms
+BsmtQual: Height of the basement
+BsmtUnfSF: Unfinished square feet of basement area
+CentralAir: Central air conditioning
+Condition1: Proximity to main road or railroad
+Condition2: Proximity to main road or railroad (if a second is present)
+Electrical: Electrical system
+EnclosedPorch: Enclosed porch area in square feet
+ExterCond: Present condition of the material on the exterior
+Exterior1st: Exterior covering on house
+Exterior2nd: Exterior covering on house (if more than one material)
+ExterQual: Exterior material quality
+Fence: Fence quality
+FireplaceQu: Fireplace quality
+Fireplaces: Number of fireplaces
+Foundation: Type of foundation
+FullBath: Full bathrooms above grade
+Functional: Home functionality rating
+GarageArea: Size of garage in square feet
+GarageCars: Size of garage in car capacity
+GarageCond: Garage condition
+GarageFinish: Interior finish of the garage
+GarageQual: Garage quality
+GarageType: Garage location
+GarageYrBlt: Year garage was built
+GrLivArea: Above grade (ground) living area square feet
+HalfBath: Half baths above grade
+Heating: Type of heating
+HeatingQC: Heating quality and condition
+HouseStyle: Style of dwelling
+Kitchen: Number of kitchens
+KitchenQual: Kitchen quality
+LandContour: Flatness of the property
+LandSlope: Slope of property
+LotArea: Lot size in square feet
+LotConfig: Lot configuration
+LotFrontage: Linear feet of street connected to property
+LotShape: General shape of property
+LowQualFinSF: Low quality finished square feet (all floors)
+MasVnrArea: Masonry veneer area in square feet
+MasVnrType: Masonry veneer type
+MiscFeature: Miscellaneous feature not covered in other categories
+MiscVal: $Value of miscellaneous feature
+MoSold: Month Sold
+MSSubClass: The building class
+MSZoning: The general zoning classification
+Neighborhood: Physical locations within Ames city limits
+OpenPorchSF: Open porch area in square feet
+OverallCond: Overall condition rating
+OverallQual: Overall material and finish quality
+PavedDrive: Paved driveway
+PoolArea: Pool area in square feet
+PoolQC: Pool quality
+RoofMatl: Roof material
+RoofStyle: Type of roof
+SaleCondition: Condition of sale
+SaleType: Type of sale
+ScreenPorch: Screen porch area in square feet
+Street: Type of road access
+TotalBsmtSF: Total square feet of basement area
+TotRmsAbvGrd: Total rooms above grade (does not include bathrooms)
+Utilities: Type of utilities available
+WoodDeckSF: Wood deck area in square feet
+YearBuilt: Original construction date
+YearRemodAdd: Remodel date
+YrSold: Year Sold
+```
+
+
+# Get & Split Data
+```{r}
+a = read_csv('train.csv') %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character), factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is_character),
+    where(is_numeric)
+  )
+
+a %>% sample_n(10)
+```
+
+```{r}
+mo_sold, year_built, year_remod_add, yr_sold
+```
+
+
+# 5 min EDA
+
+### viz missing
+```{r fig.width=12, fig.height=9}
+total.cols = a %>% colnames() %>% length() 
+
+a %>% visdat::vis_dat()
+```
+
+### check missing, na, inf
+```{r}
+a %>% select(where(is.factor)) %>% funModeling::status() %>% arrange(-q_na)
+a %>% select(where(is.numeric)) %>% funModeling::status() %>% arrange(-q_na)
+```
+
+Observations
+
+1. 4 factor vars have 80%+ missing values
+    + since this is so many, consider removing entirely rather than imputing
+2. For other factor vars with minimal missing nas, consider either:
+    + replacing missing values with dedicated 'unknown' level OR
+    + replacing missing values by imputing
+3. Consider imputing num vars with nas
+    + lot_frontage: rf or kmeans imputation with all other vars
+    + garage_yr_blt: rf imputation with other date vars (e.g. year_XXX, yr_sold)
+    + mas_vnr_area: rf or kmeans imputation with all other vars
+
+
+# Wrangling / Cleaning
+```{r eval=FALSE}
+a$pool_qc = NULL
+a$misc_feature = NULL
+a$alley = NULL
+a$fence = NULL
+```
+
+# EDA: nom vars
+
+### names
+```{r}
+(nom.vars = a %>% select(where(is.factor)) %>% colnames %>% as.character)
+```
+
+### check missing
+```{r}
+a %>% select(nom.vars) %>% miss_var_summary
+```
+
+### sample
+```{r}
+a %>% select(nom.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(nom.vars) %>% skim_without_charts()
+```
+
+### viz: level counts distribution
+```{r}
+a %>% select(nom.vars) %>% map(n_unique) %>% as.data.frame.list %>% pivot_longer(everything()) %>% mutate(name = fct_reorder(name, value)) %>% plot_ly(x = ~value, y = ~name, color = ~name) %>% hide_legend() %>% layout(title = 'factor vars level counts', xaxis = list(title = 'count'), yaxis = list(title = ''))
+
+a %>% select(nom.vars) %>% funModeling::freq()
+```
+
+### viz: mosaic plots: ggpairs
+```{r fig.width=12, fig.height=9}
+#documentation: https://mran.microsoft.com/snapshot/2016-01-12/web/packages/GGally/vignettes/ggpairs.html
+
+a %>% select(nom.vars) %>% 
+  GGally::ggpairs(
+    columns = c(nom.vars[13], nom.vars[32]),
+    mapping = aes(color = eval(as.name(nom.vars[13])))
+)
+
+```
+
+Description of Masonry veneer type
+
++ BrkCmn	Brick Common
++ BrkFace	Brick Face
++ CBlock	Cinder Block
++ None	None
++ Stone	Stone
+
+Description of Exterior Quality Levels
+
++ Ex	Excellent
++ Gd	Good
++ TA	Average/Typical
++ Fa	Fair
++ Po	Poor
+
+<h style="color: blue; font-size:16px;">Not too surprisingly, Many of the Brick type Masonry veneer type had Exterior Qualities of Good and Excellent</h>
+
+# EDA: num vars
+
+### names
+```{r}
+(num.vars = a %>% select(where(is.numeric)) %>% colnames %>% as.character)
+```
+
+### check missing
+```{r}
+a %>% select(num.vars) %>% miss_var_summary
+```
+
+### sample
+```{r}
+a %>% select(num.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(num.vars) %>% skim_without_charts()
+```
+
+### viz: distribution - hist
+```{r}
+a %>% select(num.vars) %>% DataExplorer::plot_histogram(
+  scale_x = 'log10',
+  #geom_histogram_args = list(bins = 50L),
+  ncol = 2, nrow = 2
+)
+```
+
+### viz: distribution - density
+```{r}
+a %>% select(num.vars) %>% DataExplorer::plot_density(
+  scale_x = 'log10',
+  #geom_histogram_args = list(bins = 50L),
+  ncol = 2, nrow = 2
+)
+```
+
+### viz: outliers
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_outlier()
+```
+
+### viz: normality
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_normality()
+```
+### viz: normality: outcome var only
+```{r}
+a %>% select(sale_price) %>% dlookr::plot_normality()
+```
+<h style="color: blue; font-size:16px;">consider log transforming</h>
+
+### viz: correlations
+
+```{r fig.width= 12, fig.height=9}
+a %>% select(num.vars) %>% visdat::vis_cor()
+
+a %>% select(num.vars) %>% dlookr::plot_correlate()
+
+a %>% select(num.vars) %>% GGally::ggcorr(low = 'red', high = 'darkgreen', label = TRUE)
+```
+
+Observations:
+
+1. Not surprisingly there are positive cor among certain vars (list below not comprehensive):
+    + gr_liv_area & tot_rms_abv_grd
+    + gr_liv_area & sale_price
+    + bedroom_abv_gr & tot_rms_abv_grd
+    + yr_blt & garage_yr_blt
+2. Consider doing PCA on correlated vars
+
+# EDA: nom/num vars
+
+```{r}
+target.var = 'sale_price'
+```
+### viz: cor w/target - pearson
+```{r}
+a %>% select(num.vars) %>% funModeling::correlation_table(target = target.var)
+```
+
+<h style="color: blue; font-size:16px;">quick and dirty pseudo feature importance</h>
+
+
+### feature engineering a binary var for viz below
+```{r}
+a %>% count(overall_qual) %>% arrange(-overall_qual)
+
+a = a %>% mutate(
+  overall_qual.gte.8.flg = if_else(
+    overall_qual >= 8, 'yes', 'no'
+  )
+)
+
+```
+
+
+### viz: cross plot - input/target distribution
+```{r}
+### useful when outcome var is a binary var
+a %>% funModeling::cross_plot(
+  input = nom.vars,
+  target = "overall_qual.gte.8.flg"
+  )
+```
+
+### quick analysis: binary target
+```{r}
+#This function is used to analyze data when we need to reduce variable cardinality in predictive modeling.
+#works in conjunction with 'cross_plot';
+a %>% funModeling::categ_analysis(
+    input = nom.vars[13],
+    target = 'overall_qual.gte.8.flg'
+  )
+```
+
+<h style="color: blue; font-size:16px;">Of the subset of homes whose exterior quality was excellent, 88.5% had an overall quality rating of 8 or better </h>
+
+#gomi
+
+1. remove vars
+2. impute missing
+3. log transform outcome
