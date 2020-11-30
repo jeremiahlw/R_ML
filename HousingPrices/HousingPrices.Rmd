@@ -28,96 +28,21 @@ library(here);library(janitor);library(lubridate);library(naniar);
 library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
 library(readxl);library(skimr);library(tidyverse);library(scales);
 library(visdat)
+
+library(tidymodels)
 ```
 
 # Intro
 
 [Check this Kaggle](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data)
 
-# Data Dic
-```{r}
-SalePrice - the property's sale price in dollars. This is the target variable that you're trying to predict.
-1stFlrSF: First Floor square feet
-2ndFlrSF: Second floor square feet
-3SsnPorch: Three season porch area in square feet
-Alley: Type of alley access
-Bedroom: Number of bedrooms above basement level
-BldgType: Type of dwelling
-BsmtCond: General condition of the basement
-BsmtExposure: Walkout or garden level basement walls
-BsmtFinSF1: Type 1 finished square feet
-BsmtFinSF2: Type 2 finished square feet
-BsmtFinType1: Quality of basement finished area
-BsmtFinType2: Quality of second finished area (if present)
-BsmtFullBath: Basement full bathrooms
-BsmtHalfBath: Basement half bathrooms
-BsmtQual: Height of the basement
-BsmtUnfSF: Unfinished square feet of basement area
-CentralAir: Central air conditioning
-Condition1: Proximity to main road or railroad
-Condition2: Proximity to main road or railroad (if a second is present)
-Electrical: Electrical system
-EnclosedPorch: Enclosed porch area in square feet
-ExterCond: Present condition of the material on the exterior
-Exterior1st: Exterior covering on house
-Exterior2nd: Exterior covering on house (if more than one material)
-ExterQual: Exterior material quality
-Fence: Fence quality
-FireplaceQu: Fireplace quality
-Fireplaces: Number of fireplaces
-Foundation: Type of foundation
-FullBath: Full bathrooms above grade
-Functional: Home functionality rating
-GarageArea: Size of garage in square feet
-GarageCars: Size of garage in car capacity
-GarageCond: Garage condition
-GarageFinish: Interior finish of the garage
-GarageQual: Garage quality
-GarageType: Garage location
-GarageYrBlt: Year garage was built
-GrLivArea: Above grade (ground) living area square feet
-HalfBath: Half baths above grade
-Heating: Type of heating
-HeatingQC: Heating quality and condition
-HouseStyle: Style of dwelling
-Kitchen: Number of kitchens
-KitchenQual: Kitchen quality
-LandContour: Flatness of the property
-LandSlope: Slope of property
-LotArea: Lot size in square feet
-LotConfig: Lot configuration
-LotFrontage: Linear feet of street connected to property
-LotShape: General shape of property
-LowQualFinSF: Low quality finished square feet (all floors)
-MasVnrArea: Masonry veneer area in square feet
-MasVnrType: Masonry veneer type
-MiscFeature: Miscellaneous feature not covered in other categories
-MiscVal: $Value of miscellaneous feature
-MoSold: Month Sold
-MSSubClass: The building class
-MSZoning: The general zoning classification
-Neighborhood: Physical locations within Ames city limits
-OpenPorchSF: Open porch area in square feet
-OverallCond: Overall condition rating
-OverallQual: Overall material and finish quality
-PavedDrive: Paved driveway
-PoolArea: Pool area in square feet
-PoolQC: Pool quality
-RoofMatl: Roof material
-RoofStyle: Type of roof
-SaleCondition: Condition of sale
-SaleType: Type of sale
-ScreenPorch: Screen porch area in square feet
-Street: Type of road access
-TotalBsmtSF: Total square feet of basement area
-TotRmsAbvGrd: Total rooms above grade (does not include bathrooms)
-Utilities: Type of utilities available
-WoodDeckSF: Wood deck area in square feet
-YearBuilt: Original construction date
-YearRemodAdd: Remodel date
-YrSold: Year Sold
-```
+# Objective
 
+Predict Housing Prices using 3 supervised ml algos:
+
+1. elastic net
+2. random forest
+3. xgboost
 
 # Get & Split Data
 ```{r}
@@ -132,13 +57,19 @@ a = read_csv('train.csv') %>%
     where(is_numeric)
   )
 
+test = read_csv('test.csv') %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character), factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is_character),
+    where(is_numeric)
+  )
+
 a %>% sample_n(10)
 ```
-
-```{r}
-mo_sold, year_built, year_remod_add, yr_sold
-```
-
 
 # 5 min EDA
 
@@ -356,8 +287,155 @@ a %>% funModeling::categ_analysis(
 
 <h style="color: blue; font-size:16px;">Of the subset of homes whose exterior quality was excellent, 88.5% had an overall quality rating of 8 or better </h>
 
+# Preprocess Data
+
+### 1) split data
+```{r include=FALSE}
+train = a
+test = test
+vfold = vfold_cv(train, v = 5)
+```
+
+```{r include=FALSE}
+train %>% select(where(is.factor)) %>% miss_var_summary
+train %>% select(where(is.factor)) %>% sample_n(5)
+```
+
+```{r include=FALSE}
+train %>% select(where(is.numeric)) %>% miss_var_summary
+train %>% select(where(is.numeric)) %>% sample_n(5)
+```
+
+
+### 2) create recipe
+```{r}
+#order reference: https://recipes.tidymodels.org/articles/Ordering.html
+
+library(tidymodels)
+
+rec = train %>% recipe(sale_price ~ . ) %>% 
+  step_rm(pool_qc, misc_feature, alley, fence) %>% #excessive nas
+  step_bagimpute(
+    lot_frontage, garage_yr_blt
+    ) %>% 
+  step_naomit(all_numeric(),-all_outcomes()) %>%  #remove rows that have nas for remaining nas vars
+  step_unknown(all_nominal()) %>% #assign 'unknown' level to vars with nas
+  step_corr(all_numeric(),-all_outcomes()) %>%
+  #step_integer(all_nominal(),-all_outcomes()) %>% #??
+  step_dummy(all_nominal(), one_hot = TRUE) %>%  #There are new levels in a factor
+  step_normalize(all_numeric(),-all_outcomes()) %>% 
+  step_nzv(all_predictors(),-all_outcomes()) %>%
+  step_zv(all_predictors(),-all_outcomes())
+  #step_naomit(all_predictors(),-all_outcomes())
+
+rec %>% tidy
+```
+
+### 3) preprocess
+```{r}
+#rec %>% prep
+baked.train = rec %>% prep %>% bake(new_data = NULL)
+baked.train %>% head
+nrow(baked.train)
+```
+
+### check for missing data in processed data
+```{r}
+baked.train %>% miss_var_summary
+```
+
+```{r}
+baked.train %>% status %>% arrange(-p_na)
+```
+
+
+### 4) create model spec
+```{r}
+mdl.en.spec = parsnip::linear_reg(
+  penalty = tune(),
+  mixture = tune() #lasso/ridge mix
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('glmnet')
+```
+
+### 5) create workflow spec
+```{r}
+wf.en = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(mdl.en.spec)
+```
+
+### 6) execute workflow on vfold using **auto** hp tuning
+```{r}
+doParallel::registerDoParallel() #use parallel processing
+set.seed(345)
+
+tg.en = tune_grid(
+  object = wf.en,
+  resamples = vfold, 
+  grid = 5 #Create a tuning grid AUTOMATICALLY
+)
+
+tg.en
+
+tg.en %>% collect_metrics()
+```
+
+### viz results
+```{r warning=FALSE}
+ggplotly(
+tg.en %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  select(mean, penalty, mixture) %>%
+  pivot_longer(penalty:mixture,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE, size = 3) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "RMSE")
+)
+
+tg.en %>% show_best('rmse')
+```
+
+### 7) choose best hps
+```{r}
+(best.hps.en = select_best(tg.en, 'rmse'))
+```
+
+```{r}
+
+```
+
+
+### 8) finalize workflow, fit & execute model, evaluate metrics
+
+```{r}
+mdl.en.fit = wf.en %>% 
+  #1) finalize wf (recipe, model w/previously unknown hps) using best hps
+  finalize_workflow(best.hps.en) %>%
+  #2) fit on entire train
+  fit(train)
+
+mdl.en.fit %>% predict(new_data = test)
+
+
+%>%
+  #3) evaluate metrics
+  collect_predictions() %>%
+  select(.pred, adr) %>%
+  #'metric_set(rmse, rsq, mae)' is actually a in-line formula you create
+  metric_set(rmse, rsq, mae)(truth = adr, estimate = .pred)
+  
+```
+
 #gomi
 
-1. remove vars
-2. impute missing
-3. log transform outcome
+1. compare knn impute vs bag impute
+2. compare bag impute vs step unknown
+3. does step pca help/hurt
+4 learn how to use vip package
