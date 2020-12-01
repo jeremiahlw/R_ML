@@ -1,6 +1,6 @@
 ---
 title: "Housing Prices"
-subtitle: "Predicting Housing Prices using RF, ENET, XGBST"
+subtitle: "Predicting Housing Prices using RF, ENET"
 author: 'Jeremiah Wang'
 date: "December 2020"
 output:
@@ -29,7 +29,7 @@ library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
 library(readxl);library(skimr);library(tidyverse);library(scales);
 library(visdat)
 
-library(tidymodels)
+library(tidymodels);library(vip)
 ```
 
 # Intro
@@ -45,7 +45,7 @@ Predict Housing Prices using 3 supervised ml algos:
 3. xgboost
 
 # Get & Split Data
-```{r}
+```{r message=FALSE, warning=FALSE}
 a = read_csv('train.csv') %>% 
   clean_names() %>% 
   mutate(across(where(is.character), factor)) %>% 
@@ -130,7 +130,7 @@ a %>% select(nom.vars) %>% skim_without_charts()
 ```
 
 ### viz: level counts distribution
-```{r}
+```{r message=FALSE, warning=FALSE}
 a %>% select(nom.vars) %>% map(n_unique) %>% as.data.frame.list %>% pivot_longer(everything()) %>% mutate(name = fct_reorder(name, value)) %>% plot_ly(x = ~value, y = ~name, color = ~name) %>% hide_legend() %>% layout(title = 'factor vars level counts', xaxis = list(title = 'count'), yaxis = list(title = ''))
 
 a %>% select(nom.vars) %>% funModeling::freq()
@@ -215,10 +215,12 @@ a %>% select(num.vars) %>% dlookr::plot_outlier()
 ```{r}
 a %>% select(num.vars) %>% dlookr::plot_normality()
 ```
+
 ### viz: normality: outcome var only
 ```{r}
 a %>% select(sale_price) %>% dlookr::plot_normality()
 ```
+
 <h style="color: blue; font-size:16px;">consider log transforming</h>
 
 ### viz: correlations
@@ -226,7 +228,7 @@ a %>% select(sale_price) %>% dlookr::plot_normality()
 ```{r fig.width= 12, fig.height=9}
 a %>% select(num.vars) %>% visdat::vis_cor()
 
-a %>% select(num.vars) %>% dlookr::plot_correlate()
+#a %>% select(num.vars) %>% dlookr::plot_correlate()
 
 a %>% select(num.vars) %>% GGally::ggcorr(low = 'red', high = 'darkgreen', label = TRUE)
 ```
@@ -252,45 +254,33 @@ a %>% select(num.vars) %>% funModeling::correlation_table(target = target.var)
 
 <h style="color: blue; font-size:16px;">quick and dirty pseudo feature importance</h>
 
-
-### feature engineering a binary var for viz below
-```{r}
-a %>% count(overall_qual) %>% arrange(-overall_qual)
-
-a = a %>% mutate(
-  overall_qual.gte.8.flg = if_else(
-    overall_qual >= 8, 'yes', 'no'
-  )
-)
-
-```
-
-
 ### viz: cross plot - input/target distribution
 ```{r eval=FALSE}
 ### useful when outcome var is a binary var
-a %>% funModeling::cross_plot(
+a %>% mutate(
+  overall_qual.gte.8.flg = if_else(
+    overall_qual >= 8, 'yes', 'no'
+  )
+) %>% funModeling::cross_plot(
   input = nom.vars,
   target = "overall_qual.gte.8.flg"
   )
 ```
 
 ### quick analysis: binary target
-```{r}
+```{r eval=FALSE}
 #This function is used to analyze data when we need to reduce variable cardinality in predictive modeling.
 #works in conjunction with 'cross_plot';
-a %>% funModeling::categ_analysis(
-    input = nom.vars[13],
-    target = 'overall_qual.gte.8.flg'
-  )
+#a %>% funModeling::categ_analysis(input = nom.vars[13], target = 'overall_qual.gte.8.flg')
 ```
 
 <h style="color: blue; font-size:16px;">Of the subset of homes whose exterior quality was excellent, 88.5% had an overall quality rating of 8 or better </h>
 
 # Preprocess Data
 
-### 1) split data
+## 1) split data
 ```{r include=FALSE}
+#reducing data for speed reasons
 train = a %>% slice_sample(prop = 0.50)
 test = test %>% slice_sample(prop = 0.50)
 vfold = vfold_cv(train, v = 5)
@@ -306,7 +296,7 @@ train %>% select(where(is.numeric)) %>% miss_var_summary
 train %>% select(where(is.numeric)) %>% sample_n(5)
 ```
 
-### 2) create recipe
+## 2) create recipe spec
 ```{r}
 #order reference: https://recipes.tidymodels.org/articles/Ordering.html
 
@@ -345,21 +335,20 @@ rec.rf %>% tidy
 
 ```
 
-### 3) preprocess
+## 3) preprocess
 ```{r include=FALSE}
 #rec %>% prep
 rec.en %>% prep %>% bake(new_data = NULL) %>% head
-rec.rf %>% prep %>% bake(new_data = NULL) %>% head
+rec.rf %>% prep %>% bake(new_data = NULL) %>% head %>% glimpse
 ```
 
-### check for missing data in processed data
+### check missing
 ```{r include=FALSE}
 rec.en %>% prep %>% bake(new_data = NULL) %>% status %>% arrange(-p_na)
 rec.rf %>% prep %>% bake(new_data = NULL) %>% status %>% arrange(-p_na)
 ```
 
-
-### 4) create model spec
+## 4) create model spec
 ```{r}
 mdl.en = parsnip::linear_reg(
   penalty = tune(),
@@ -377,7 +366,7 @@ mdl.rf = parsnip::rand_forest(
   set_engine('ranger', importance = 'impurity_corrected')
 ```
 
-### 5) create workflow spec
+## 5) create workflow spec
 ```{r}
 wf.en = workflow() %>% 
   add_recipe(rec.en) %>% 
@@ -388,8 +377,8 @@ wf.rf = workflow() %>%
   add_model(mdl.rf)
 ```
 
-### 6) execute workflow on vfold using **auto** hp tuning
-```{r}
+## 6) execute workflow on vfold using **auto** hp tuning
+```{r message=FALSE}
 doParallel::registerDoParallel() #use parallel processing
 set.seed(345)
 
@@ -402,19 +391,17 @@ tg.en = tune_grid(
 tg.en %>% collect_metrics()
 
 #----------------------------
-doParallel::registerDoParallel() #use parallel processing
-set.seed(345)
 
 tg.rf = tune_grid(
   object = wf.rf,
   resamples = vfold, 
   grid = 5 #Create a tuning grid AUTOMATICALLY
 )
-
+tg.rf$.notes
 tg.rf %>% collect_metrics()
 ```
 
-### viz results
+### viz evaluation metrics
 ```{r warning=FALSE}
 ggplotly(
 tg.en %>%
@@ -453,45 +440,48 @@ tg.rf %>%
 tg.rf %>% show_best('rmse')
 ```
 
-### 7) choose best hps
+## 7) select best hps
 ```{r}
-(best.hps.en = select_best(tg.en, 'rmse'))
+(best.hps.en = tg.en %>% select_best('rmse'))
 #----------------------------
-(best.hps.rf = select_best(tg.rf, 'rmse'))
+(best.hps.rf = tg.rf %>% select_best('rmse'))
 ```
 
-### 8) finalize workflow, fit & execute model, evaluate metrics
-
+## 8) finalize workflow & fit model
 ```{r}
-mdl.en.fit = wf.en %>% 
+wf.en.fin = wf.en %>% 
   #1) finalize wf (recipe, model w/previously unknown hps) using best hps
   finalize_workflow(best.hps.en) %>%
   #2) fit on entire train
   fit(train)
 
-preds.en = mdl.en.fit %>% predict(test)
-
-(10 ^ preds.en) %>% plot_ly(x = ~.pred)
-(10 ^ preds.en) %>% plot_ly(x = ~.pred)  %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
-
 #----------------------------
 
-mdl.rf.fit = wf.rf %>% 
+wf.rf.fin = wf.rf %>% 
   #1) finalize wf (recipe, model w/previously unknown hps) using best hps
   finalize_workflow(best.hps.rf) %>%
   #2) fit on entire train
   fit(train)
 
-preds.rf = mdl.rf.fit %>% predict(test)
-
-(10 ^ preds.rf) %>% plot_ly(x = ~.pred)
-(10 ^ preds.rf) %>% plot_ly(x = ~.pred)  %>% add_boxplot() %>% %>% layout(title = 'Distribution: Random Forest Sale Price Predictions')
-
 ```
 
-#gomi
+## 9) check vip
+```{r}
+wf.en.fin %>% pull_workflow_fit() %>% vip(geom = 'point') + labs(title = 'ENET var importance')
+#wf.en.fin %>% pull_workflow_fit() %>% vi
+wf.rf.fin %>% pull_workflow_fit() %>% vip(geom = 'point') + labs(title = 'RF var importance')
+#wf.rf.fin %>% pull_workflow_fit() %>% vi
+```
 
-1. 
-2. compare bag impute vs step unknown
-3. does step pca help/hurt
-4 learn how to use vip package
+## 10) make preds on test
+```{r warning=FALSE}
+preds.en = wf.en.fin %>% predict(test)
+
+(10 ^ preds.en) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
+(10 ^ preds.en) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
+
+preds.rf = wf.rf.fin %>% predict(test)
+
+(10 ^ preds.rf) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
+(10 ^ preds.rf) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
+```
