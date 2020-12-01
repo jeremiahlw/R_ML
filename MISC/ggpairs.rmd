@@ -1,0 +1,75 @@
+---
+title: "GGPairs"
+output: html_document
+---
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+
+library(tidymodels)
+```
+
+```{r}
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+
+```{r}
+a = read_csv('happiness2019.csv') %>% 
+  clean_names() %>% 
+  mutate(
+    country_or_region = as.factor(country_or_region),
+    overall_rank_bin = binning(overall_rank, 3),
+  ) %>% select(sort(tidyselect::peek_vars()))
+
+a %>% head %>% DT::datatable()
+```
+
+```{r}
+a %>% vis_dat()
+```
+```{r}
+a %>% status %>% arrange(-p_na)
+```
+
+```{r}
+a %>% map(n_unique) %>% as.data.frame.list()
+```
+
+```{r}
+a %>% select(generosity, social_support, overall_rank_bin) %>% ggpairs(mapping = aes(color = overall_rank_bin, alpha = I(0.50)))
+```
+
+```{r}
+a %>% select(generosity, social_support, overall_rank_bin) %>% ggpairs(
+  mapping = aes(color = overall_rank_bin, alpha = I(0.50), size = I(0.8))
+  ) + theme_light()
+```
+
+
+```{r}
+a %>% select(perceptions_of_corruption, healthy_life_expectancy, gdp_per_capita) %>% ggpairs(columnLabels = c('汚職','平均寿命','国内総生産'))
+```
+
+```{r}
+a %>% plot_ly(x = ~perceptions_of_corruption, y = ~gdp_per_capita, hoverinfo = 'text', text = ~country_or_region)
+```
+
+```{r}
+a %>% pull(country_or_region)  %>% sort()%>% head(40)
+```
+
+
+
+
+
+
+
+
+
+

@@ -267,7 +267,7 @@ a = a %>% mutate(
 
 
 ### viz: cross plot - input/target distribution
-```{r}
+```{r eval=FALSE}
 ### useful when outcome var is a binary var
 a %>% funModeling::cross_plot(
   input = nom.vars,
@@ -291,8 +291,8 @@ a %>% funModeling::categ_analysis(
 
 ### 1) split data
 ```{r include=FALSE}
-train = a
-test = test
+train = a %>% slice_sample(prop = 0.50)
+test = test %>% slice_sample(prop = 0.50)
 vfold = vfold_cv(train, v = 5)
 ```
 
@@ -306,64 +306,86 @@ train %>% select(where(is.numeric)) %>% miss_var_summary
 train %>% select(where(is.numeric)) %>% sample_n(5)
 ```
 
-
 ### 2) create recipe
 ```{r}
 #order reference: https://recipes.tidymodels.org/articles/Ordering.html
 
 library(tidymodels)
 
-rec = train %>% recipe(sale_price ~ . ) %>% 
+rec.en = train %>% recipe(sale_price ~ . ) %>% 
+  step_mutate(sale_price = log10(sale_price), skip = TRUE) %>% 
   step_rm(pool_qc, misc_feature, alley, fence) %>% #excessive nas
   step_bagimpute(
-    lot_frontage, garage_yr_blt
+    lot_frontage, garage_yr_blt, mas_vnr_area
     ) %>% 
-  step_naomit(all_numeric(),-all_outcomes()) %>%  #remove rows that have nas for remaining nas vars
   step_unknown(all_nominal()) %>% #assign 'unknown' level to vars with nas
   step_corr(all_numeric(),-all_outcomes()) %>%
-  #step_integer(all_nominal(),-all_outcomes()) %>% #??
   step_dummy(all_nominal(), one_hot = TRUE) %>%  #There are new levels in a factor
-  step_normalize(all_numeric(),-all_outcomes()) %>% 
   step_nzv(all_predictors(),-all_outcomes()) %>%
-  step_zv(all_predictors(),-all_outcomes())
-  #step_naomit(all_predictors(),-all_outcomes())
+  step_zv(all_predictors(),-all_outcomes()) %>% 
+  step_normalize(all_numeric(),-all_outcomes())
 
-rec %>% tidy
+rec.en %>% tidy
+
+#----------------------------
+
+rec.rf = train %>% recipe(sale_price ~ . ) %>% 
+  step_mutate(sale_price = log10(sale_price), skip = TRUE) %>% 
+  step_rm(pool_qc, misc_feature, alley, fence) %>% #excessive nas
+  step_bagimpute(all_numeric(),-all_outcomes()) %>% 
+  step_knnimpute(all_nominal(),-all_outcomes()) %>%
+  step_corr(all_numeric(),-all_outcomes()) %>%
+  #step_dummy(all_nominal(), one_hot = TRUE) %>%  #There are new levels in a factor
+  step_nzv(all_predictors(),-all_outcomes()) %>%
+  step_zv(all_predictors(),-all_outcomes()) %>% 
+  step_normalize(all_numeric(),-all_outcomes())
+
+rec.rf %>% tidy
+
+
 ```
 
 ### 3) preprocess
-```{r}
+```{r include=FALSE}
 #rec %>% prep
-baked.train = rec %>% prep %>% bake(new_data = NULL)
-baked.train %>% head
-nrow(baked.train)
+rec.en %>% prep %>% bake(new_data = NULL) %>% head
+rec.rf %>% prep %>% bake(new_data = NULL) %>% head
 ```
 
 ### check for missing data in processed data
-```{r}
-baked.train %>% miss_var_summary
-```
-
-```{r}
-baked.train %>% status %>% arrange(-p_na)
+```{r include=FALSE}
+rec.en %>% prep %>% bake(new_data = NULL) %>% status %>% arrange(-p_na)
+rec.rf %>% prep %>% bake(new_data = NULL) %>% status %>% arrange(-p_na)
 ```
 
 
 ### 4) create model spec
 ```{r}
-mdl.en.spec = parsnip::linear_reg(
+mdl.en = parsnip::linear_reg(
   penalty = tune(),
   mixture = tune() #lasso/ridge mix
 ) %>% 
   set_mode('regression') %>% 
   set_engine('glmnet')
+
+mdl.rf = parsnip::rand_forest(
+  trees = 150,
+  min_n = tune(), #min number of observations at terminal node
+  mtry = tune() #number of vars to randomly subset at each node
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('ranger', importance = 'impurity_corrected')
 ```
 
 ### 5) create workflow spec
 ```{r}
 wf.en = workflow() %>% 
-  add_recipe(rec) %>% 
-  add_model(mdl.en.spec)
+  add_recipe(rec.en) %>% 
+  add_model(mdl.en)
+#----------------------------
+wf.rf = workflow() %>% 
+  add_recipe(rec.rf) %>% 
+  add_model(mdl.rf)
 ```
 
 ### 6) execute workflow on vfold using **auto** hp tuning
@@ -377,9 +399,19 @@ tg.en = tune_grid(
   grid = 5 #Create a tuning grid AUTOMATICALLY
 )
 
-tg.en
-
 tg.en %>% collect_metrics()
+
+#----------------------------
+doParallel::registerDoParallel() #use parallel processing
+set.seed(345)
+
+tg.rf = tune_grid(
+  object = wf.rf,
+  resamples = vfold, 
+  grid = 5 #Create a tuning grid AUTOMATICALLY
+)
+
+tg.rf %>% collect_metrics()
 ```
 
 ### viz results
@@ -396,21 +428,37 @@ tg.en %>%
   ggplot(aes(value, mean, color = parameter)) +
   geom_point(show.legend = FALSE, size = 3) +
   facet_wrap(~parameter, scales = "free_x") +
-  labs(x = NULL, y = "RMSE")
+  labs(title = 'Elastic Net RMSE by Hyperparameter', x = NULL, y = '')
 )
 
 tg.en %>% show_best('rmse')
+
+#----------------------------
+
+ggplotly(
+tg.rf %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE, size = 3) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(title = 'Random Forest RMSE by Hyperparameter', x = NULL, y = '')
+)
+
+tg.rf %>% show_best('rmse')
 ```
 
 ### 7) choose best hps
 ```{r}
 (best.hps.en = select_best(tg.en, 'rmse'))
+#----------------------------
+(best.hps.rf = select_best(tg.rf, 'rmse'))
 ```
-
-```{r}
-
-```
-
 
 ### 8) finalize workflow, fit & execute model, evaluate metrics
 
@@ -421,21 +469,29 @@ mdl.en.fit = wf.en %>%
   #2) fit on entire train
   fit(train)
 
-mdl.en.fit %>% predict(new_data = test)
+preds.en = mdl.en.fit %>% predict(test)
 
+(10 ^ preds.en) %>% plot_ly(x = ~.pred)
+(10 ^ preds.en) %>% plot_ly(x = ~.pred)  %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
 
-%>%
-  #3) evaluate metrics
-  collect_predictions() %>%
-  select(.pred, adr) %>%
-  #'metric_set(rmse, rsq, mae)' is actually a in-line formula you create
-  metric_set(rmse, rsq, mae)(truth = adr, estimate = .pred)
-  
+#----------------------------
+
+mdl.rf.fit = wf.rf %>% 
+  #1) finalize wf (recipe, model w/previously unknown hps) using best hps
+  finalize_workflow(best.hps.rf) %>%
+  #2) fit on entire train
+  fit(train)
+
+preds.rf = mdl.rf.fit %>% predict(test)
+
+(10 ^ preds.rf) %>% plot_ly(x = ~.pred)
+(10 ^ preds.rf) %>% plot_ly(x = ~.pred)  %>% add_boxplot() %>% %>% layout(title = 'Distribution: Random Forest Sale Price Predictions')
+
 ```
 
 #gomi
 
-1. compare knn impute vs bag impute
+1. 
 2. compare bag impute vs step unknown
 3. does step pca help/hurt
 4 learn how to use vip package
