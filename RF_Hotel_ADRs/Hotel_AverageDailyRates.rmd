@@ -1,0 +1,504 @@
+---
+title: "Predicting Hotel Average Daily Rate Prices"
+author: 'Jeremiah Wang'
+date: "December 2020"
+output:
+  html_document:
+  theme: paper
+highlight: pygments
+code_folding: hide
+toc: yes
+toc_float:
+  collapsed: no
+smooth_scroll: no
+toc_depth: 2
+df_print: paged
+---
+  
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+
+library(tidymodels);library(vip)
+```
+
+# Introduction
+
+[Check out this Kaggle](https://www.kaggle.com/jessemostipak/hotel-booking-demand)
+
+# Objective
+
+Predict Housing Prices using 2 supervised ml algos:
+
+1. elastic net
+2. random forest
+
+# Resources
+
+1. adr
+    + https://www.xotels.com/en/glossary/adr-average-daily-rate/
+2. transient
+    + https://www.xotels.com/en/glossary/transient/
+3. group rate
+    + https://www.xotels.com/en/glossary/group-rate/
+4. Guide to Hotel Management
+    + https://www.4hoteliers.com/features/article/9886
+5. distribution channels
+    + https://www.xotels.com/en/glossary/channels/
+
+# Get Data
+
+```{r message=FALSE}
+a = read_csv('hotel_bookings.csv') %>%
+  clean_names() %>% 
+  mutate(across(where(is.character), factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.character),
+    where(is.factor),
+    where(is.numeric)
+  ) %>% filter(is_canceled == 0) #filter to non-canceled bookings
+
+a$is_canceled = NULL
+a$reservation_status_date = NULL
+
+a %>% sample_n(10)
+```
+
+# 5 min EDA
+
+### viz missing
+```{r fig.width=12, fig.height=9}
+a %>% visdat::vis_dat(warn_large_data = FALSE)
+```
+
+### check missing, na, inf
+```{r}
+a %>% select(where(is.factor)) %>% funModeling::status() %>% arrange(-q_na)
+a %>% select(where(is.numeric)) %>% funModeling::status() %>% arrange(-q_na)
+a %>% select(where(is.numeric)) %>% funModeling::status() %>% arrange(-p_zeros)
+```
+
+Observations
+
+1. While there are no missing values, 2 vars unexpectedly have 0s
+    + adr : how is the average daily rate (price) $0.00 ?
+    + adults: how is it that children are making bookings ?
+
+
+# Wrangling / Cleaning
+```{r eval=FALSE}
+
+```
+
+# EDA: nom vars
+
+### names
+```{r}
+(nom.vars = a %>% select(where(is.factor)) %>% colnames %>% as.character)
+```
+
+### check missing
+```{r}
+a %>% select(nom.vars) %>% miss_var_summary
+```
+
+### sample
+```{r}
+a %>% select(nom.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(nom.vars) %>% skim_without_charts()
+```
+
+### viz: level counts distribution
+```{r message=FALSE, warning=FALSE}
+a %>% select(nom.vars) %>% map(n_unique) %>% as.data.frame.list %>% pivot_longer(everything()) %>% mutate(name = fct_reorder(name, value)) %>% plot_ly(x = ~value, y = ~name, color = ~name) %>% hide_legend() %>% layout(title = 'factor vars level counts', xaxis = list(title = 'count'), yaxis = list(title = ''))
+
+a %>% select(nom.vars) %>% select(-company, -agent, -country) %>% funModeling::freq()
+```
+
+Observations:
+
+1. Makes sense that there are more bookings during the summer months due to vacation
+2. For all factors, consider collapsing/lumping levels that make up less than 2% of the dataset
+
+### viz: mosaic plots: ggpairs
+```{r fig.width=12, fig.height=9}
+#documentation: https://mran.microsoft.com/snapshot/2016-01-12/web/packages/GGally/vignettes/ggpairs.html
+
+a %>% select(nom.vars) %>% 
+  GGally::ggpairs(
+    columns = c(nom.vars[8], nom.vars[9]),
+    mapping = aes(color = eval(as.name(nom.vars[9])))
+)
+
+```
+
+```{r fig.width=12, fig.height=9}
+#documentation: https://mran.microsoft.com/snapshot/2016-01-12/web/packages/GGally/vignettes/ggpairs.html
+
+a %>% select(nom.vars) %>% 
+  GGally::ggpairs(
+    columns = c(nom.vars[10], nom.vars[9]),
+    mapping = aes(color = eval(as.name(nom.vars[9])))
+)
+
+```
+
+Observations:
+
+1. For City Hotels, the 'Online Travel Agent' market segment makes up a much larger composition than that for Resort Hotels
+2. Bookings from the 'Aviation' market segment are non-existent for Resort Hotels
+
+# EDA: num vars
+
+### names
+```{r}
+(num.vars = a %>% select(where(is.numeric)) %>% colnames %>% as.character)
+```
+
+### check missing
+```{r}
+a %>% select(num.vars) %>% miss_var_summary
+```
+
+### sample
+```{r}
+a %>% select(num.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(num.vars) %>% skim_without_charts()
+```
+
+### viz: distribution - hist
+```{r}
+a %>% select(num.vars) %>% DataExplorer::plot_histogram(
+  #scale_x = 'log10',
+  geom_histogram_args = list(bins = 50L),
+  ncol = 2, nrow = 2
+)
+```
+
+<h style="color: blue; font-size:16px;">the peaks/troughs for 'arrival_date_week_number' likely correspond to seasonal demand</h>
+
+```{r}
+a %>% plot_ly(x = ~arrival_date_week_number) %>% add_histogram()
+
+```
+
+
+### viz: distribution - density
+```{r eval=FALSE}
+a %>% select(num.vars) %>% DataExplorer::plot_density(
+  scale_x = 'log10',
+  #geom_histogram_args = list(bins = 50L),
+  ncol = 2, nrow = 2
+)
+```
+
+### viz: outliers
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_outlier()
+```
+
+### viz: normality
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_normality()
+```
+
+### viz: normality: outcome var only
+```{r}
+a %>% select(adr) %>% dlookr::plot_normality()
+```
+
+<h style="color: blue; font-size:16px;">consider log transforming</h>
+
+### viz: correlations
+
+```{r fig.width= 12, fig.height=9}
+a %>% select(num.vars) %>% visdat::vis_cor()
+
+#a %>% select(num.vars) %>% dlookr::plot_correlate()
+
+a %>% select(num.vars) %>% GGally::ggcorr(low = 'red', high = 'darkgreen', label = TRUE)
+```
+
+Observations:
+
+1. positive cor between 'previous bookings not canceled' and 'is repeated guest'
+
+
+# EDA: nom/num vars
+
+```{r}
+target.var = 'adr'
+```
+### viz: cor w/target - pearson
+```{r}
+a %>% select(num.vars) %>% funModeling::correlation_table(target = target.var)
+```
+
+### viz: cross plot - input/target distribution
+```{r message=FALSE, warning=FALSE}
+### useful when target var is a binary var
+nom.vars.eXc.many.levels = a %>% select(nom.vars) %>% select(-company, -agent, -country) %>% colnames
+
+a %>% funModeling::cross_plot(
+  input = nom.vars.eXc.many.levels,
+  target = 'hotel'
+  )
+
+a %>% funModeling::cross_plot(
+  input = num.vars,
+  target = 'hotel'
+  )
+```
+
+### quick analysis: binary target
+```{r eval=FALSE}
+#This function is used to analyze data when we need to reduce variable cardinality in predictive modeling.
+#works in conjunction with 'cross_plot';
+levels(a$hotel)
+
+a %>% funModeling::categ_analysis(input = nom.vars[8], target = 'hotel') #mean_target, in reference to %Resort Hotel
+a %>% funModeling::categ_analysis(input = nom.vars[10], target = 'hotel') #mean_target, in reference to %Resort Hotel
+```
+
+# Preprocess Data
+
+## 1) split data
+```{r include=FALSE}
+#abak = a
+#a = abak
+a = a %>% slice_sample(prop = 0.333) #reducing data to 33% its original size for quick model testing
+split = initial_split(a, strata = 'hotel')
+train = training(split)
+test = testing(split)
+vfold = vfold_cv(train, v = 5)
+```
+
+```{r include=FALSE}
+train %>% select(where(is.factor)) %>% miss_var_summary
+train %>% select(where(is.factor)) %>% sample_n(5)
+```
+
+```{r include=FALSE}
+train %>% select(where(is.numeric)) %>% miss_var_summary
+train %>% select(where(is.numeric)) %>% sample_n(5)
+```
+
+## 2) create recipe spec
+```{r}
+#order reference: https://recipes.tidymodels.org/articles/Ordering.html
+
+library(tidymodels)
+
+rec.en = train %>% recipe(adr ~ . ) %>% 
+  step_filter(adr > 0) %>% 
+  step_log(adr, base = 10, offset = 0.01) %>% 
+  #step_rm() %>% #excessive nas
+  #step_bagimpute(all_numeric(),-all_outcomes()) %>% 
+  #step_knnimpute(all_nominal(),-all_outcomes()) %>%
+  step_corr(all_numeric(),-all_outcomes()) %>%
+  step_dummy(all_nominal(), one_hot = TRUE) %>%
+  step_nzv(all_predictors(),-all_outcomes()) %>%
+  step_zv(all_predictors(),-all_outcomes()) %>% 
+  step_normalize(all_numeric(),-all_outcomes())
+
+rec.en %>% tidy
+
+#----------------------------
+
+rec.rf = train %>% recipe(adr ~ . ) %>% 
+  step_filter(adr > 0) %>% 
+  step_log(adr, base = 10, offset = 0.01) %>% 
+  #step_rm() %>% #excessive nas
+  #step_bagimpute(all_numeric(),-all_outcomes()) %>% 
+  #step_knnimpute(all_nominal(),-all_outcomes()) %>%
+  step_corr(all_numeric(),-all_outcomes()) %>%
+  #step_dummy(all_nominal(), one_hot = TRUE) %>%  #There are new levels in a factor
+  step_nzv(all_predictors(),-all_outcomes()) %>%
+  step_zv(all_predictors(),-all_outcomes()) %>% 
+  step_normalize(all_numeric(),-all_outcomes())
+
+rec.rf %>% tidy
+```
+
+## 3) preprocess
+```{r include=FALSE}
+rec.en %>% prep
+rec.en %>% prep %>% bake(new_data = NULL) %>%  head
+#----------------------------
+rec.rf %>% prep
+rec.rf %>% prep %>% bake(new_data = NULL) %>% head
+```
+
+### check missing
+```{r include=FALSE}
+rec.en %>% prep %>% bake(new_data = NULL) %>% status %>% arrange(-p_na)
+rec.rf %>% prep %>% bake(new_data = NULL) %>% status %>% arrange(-p_na)
+```
+
+## 4) create model spec
+```{r}
+mdl.en = parsnip::linear_reg(
+  penalty = tune(),
+  mixture = tune() #lasso/ridge mix
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('glmnet')
+
+#----------------------------
+
+mdl.rf = parsnip::rand_forest(
+  trees = 150,
+  min_n = tune(), #min number of observations at terminal node
+  mtry = tune() #number of vars to randomly subset at each node
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('ranger', importance = 'impurity_corrected')
+```
+
+## 5) create workflow spec
+```{r}
+wf.en = workflow() %>% 
+  add_recipe(rec.en) %>% 
+  add_model(mdl.en)
+
+#----------------------------
+
+wf.rf = workflow() %>% 
+  add_recipe(rec.rf) %>% 
+  add_model(mdl.rf)
+```
+
+## 6) execute workflow on vfold using **auto** hp tuning
+```{r message=FALSE, warning=FALSE}
+tg.en = tune_grid(
+  object = wf.en,
+  resamples = vfold, 
+  grid = 5 #Create a tuning grid AUTOMATICALLY
+)
+
+tg.en %>% collect_metrics()
+
+#----------------------------
+doParallel::registerDoParallel() #use parallel processing
+set.seed(345)
+
+tg.rf = tune_grid(
+  object = wf.rf,
+  resamples = vfold, 
+  grid = 5 #Create a tuning grid AUTOMATICALLY
+)
+
+tg.rf %>% collect_metrics()
+```
+
+### viz evaluation metrics
+```{r warning=FALSE}
+ggplotly(
+tg.en %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  select(mean, penalty, mixture) %>%
+  pivot_longer(penalty:mixture,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE, size = 3) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(title = 'Elastic Net RMSE by Hyperparameter', x = NULL, y = '')
+)
+
+tg.en %>% show_best('rmse')
+
+#----------------------------
+
+ggplotly(
+tg.rf %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE, size = 3) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(title = 'Random Forest RMSE by Hyperparameter', x = NULL, y = '')
+)
+
+tg.rf %>% show_best('rmse')
+```
+
+## 7) select best hps
+```{r}
+(best.hps.en = tg.en %>% select_best('rmse'))
+#----------------------------
+(best.hps.rf = tg.rf %>% select_best('rmse'))
+```
+
+## 8) finalize workflow & fit model
+```{r}
+wf.en.fin = wf.en %>% 
+  #1) finalize wf (recipe, model w/previously unknown hps) using best hps
+  finalize_workflow(best.hps.en) %>%
+  #2) fit on entire train
+  fit(train)
+
+#----------------------------
+
+wf.rf.fin = wf.rf %>% 
+  #1) finalize wf (recipe, model w/previously unknown hps) using best hps
+  finalize_workflow(best.hps.rf) %>%
+  #2) fit on entire train
+  fit(train)
+
+```
+
+## 9) check vip
+```{r}
+wf.en.fin %>% pull_workflow_fit() %>% vip(geom = 'point') + labs(title = 'ENET var importance')
+#wf.en.fin %>% pull_workflow_fit() %>% vi
+wf.rf.fin %>% pull_workflow_fit() %>% vip(geom = 'point') + labs(title = 'RF var importance')
+#wf.rf.fin %>% pull_workflow_fit() %>% vi
+```
+
+## 10) make preds on test, then evaluate performance
+```{r warning=FALSE}
+wf.en.fin %>%
+  last_fit(split) %>%  #emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+  collect_predictions %>% 
+  mutate(.pred = 10 ^ .pred, adr = 10 ^ adr) %>% # 'undo' the log10 transform
+  select(.pred, adr) %>%
+  #'metric_set(rmse, rsq, mae)' is actually a in-line formula you create
+  metric_set(rmse, rsq, mae)(truth = adr, estimate = .pred)
+
+#----------------------------
+
+wf.rf.fin %>%
+  last_fit(split) %>%  #emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+  collect_predictions %>%
+  mutate(.pred = 10 ^ .pred, adr = 10 ^ adr) %>% # 'undo' the log10 transform
+  select(.pred, adr) %>%
+  #'metric_set(rmse, rsq, mae)' is actually a in-line formula you create
+  metric_set(rmse, rsq, mae)(truth = adr, estimate = .pred)
+
+
+```

@@ -38,11 +38,10 @@ library(tidymodels);library(vip)
 
 # Objective
 
-Predict Housing Prices using 3 supervised ml algos:
+Predict Housing Prices using 2 supervised ml algos:
 
 1. elastic net
 2. random forest
-3. xgboost
 
 # Get & Split Data
 ```{r message=FALSE, warning=FALSE}
@@ -198,7 +197,7 @@ a %>% select(num.vars) %>% DataExplorer::plot_histogram(
 ```
 
 ### viz: distribution - density
-```{r}
+```{r eval=FALSE}
 a %>% select(num.vars) %>% DataExplorer::plot_density(
   scale_x = 'log10',
   #geom_histogram_args = list(bins = 50L),
@@ -378,7 +377,7 @@ wf.rf = workflow() %>%
 ```
 
 ## 6) execute workflow on vfold using **auto** hp tuning
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 doParallel::registerDoParallel() #use parallel processing
 set.seed(345)
 
@@ -477,11 +476,11 @@ wf.rf.fin %>% pull_workflow_fit() %>% vip(geom = 'point') + labs(title = 'RF var
 ```{r warning=FALSE}
 preds.en = wf.en.fin %>% predict(test)
 
-(10 ^ preds.en) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
+(10 ^ preds.en) %>% plot_ly(x = ~.pred) %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
 (10 ^ preds.en) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
 
 preds.rf = wf.rf.fin %>% predict(test)
 
-(10 ^ preds.rf) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
-(10 ^ preds.rf) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Elastic Net Sale Price Predictions')
+(10 ^ preds.rf) %>% plot_ly(x = ~.pred) %>% layout(title = 'Distribution: Random Forest Sale Price Predictions')
+(10 ^ preds.rf) %>% plot_ly(x = ~.pred) %>% add_boxplot() %>% layout(title = 'Distribution: Random Forest Sale Price Predictions')
 ```
