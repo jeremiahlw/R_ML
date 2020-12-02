@@ -4,15 +4,15 @@ author: 'Jeremiah Wang'
 date: "December 2020"
 output:
   html_document:
-  theme: paper
-highlight: pygments
-code_folding: hide
-toc: yes
-toc_float:
-  collapsed: no
-smooth_scroll: no
-toc_depth: 2
-df_print: paged
+    theme: paper
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
 ---
   
 ```{r include=FALSE}
@@ -283,7 +283,7 @@ a %>% funModeling::categ_analysis(input = nom.vars[10], target = 'hotel') #mean_
 ```{r include=FALSE}
 #abak = a
 #a = abak
-a = a %>% slice_sample(prop = 0.333) #reducing data to 33% its original size for quick model testing
+a = a %>% slice_sample(prop = 0.25) #reducing data to 25% its original size for quick model testing
 split = initial_split(a, strata = 'hotel')
 train = training(split)
 test = testing(split)
