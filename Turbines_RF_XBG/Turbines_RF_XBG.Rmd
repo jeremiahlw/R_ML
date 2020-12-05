@@ -195,20 +195,23 @@ a %>% select(num.vars) %>% funModeling::correlation_table('turbine_rated_capacit
 split = initial_split(a)
 train = training(split)
 test = testing(split)
-vfold = vfold_cv(train, v = 5, strata = turbine_rated_capacity_k_w) #for supervised continuous algo, stratify on the outcome var
+vfold = vfold_cv(train, v = 10, strata = turbine_rated_capacity_k_w) #for supervised continuous algo, stratify on the outcome var
 ```
 
 ```{r eval=FALSE}
 a %>% use_ranger(turbine_rated_capacity_k_w ~ .)
 ```
 
-
 ## 2) create recipe spec
 ```{r}
 rec =
   train %>% recipe(turbine_rated_capacity_k_w ~ .) %>% 
-  step_zv(all_numeric(),-all_outcomes()) %>% step_nzv(all_numeric(),-all_outcomes()) %>% step_corr(all_numeric(),-all_outcomes()) %>% 
-  step_normalize(all_numeric(),-all_outcomes())
+  step_zv(all_numeric(),-all_outcomes()) %>%
+  step_nzv(all_numeric(),-all_outcomes()) %>%
+  step_corr(all_numeric(),-all_outcomes()) %>% 
+  step_other(all_nominal(),-all_outcomes(), threshold =  0.01) %>% 
+  step_normalize(all_numeric(),-all_outcomes()) %>% 
+  step_dummy(all_nominal(),-all_outcomes(),one_hot = TRUE)
 ```
 
 ## 3) preprocess
@@ -216,12 +219,35 @@ rec =
 rec %>% prep %>% juice %>% head
 rec %>% prep %>% bake(new_data = test) %>% head
 ```
+```{r}
+rec %>% prep %>% juice %>% miss_var_summary
+rec %>% prep %>% bake(new_data = test) %>% miss_var_summary()
+```
+
 
 ## 4) create model spec
 ```{r}
-mdl.rf = rand_forest(mtry = tune(), min_n = tune(), trees = 500) %>% 
-  set_mode("regression") %>% 
+mdl.rf = rand_forest(
+  trees = 500,
+  min_n = tune(), #complexity
+  mtry = tune(), #randomness
+  ) %>% set_mode("regression") %>%
   set_engine("ranger", importance = "impurity_corrected") 
+#----------------------------
+#https://bradleyboehmke.github.io/HOML/gbm.html#basic-gbm
+mdl.xgb = boost_tree(
+  trees = 1000,
+  #complexity
+  min_n = tune(),
+  tree_depth = tune(),
+  loss_reduction = tune(),
+  #randomness
+  mtry = tune(),
+  sample_size = tune(),
+  #step size
+  learn_rate = tune() #i.e. 'shrinkage', smaller values require more trees 
+) %>% set_mode("regression") %>%
+  set_engine("xgboost", objective = "reg:squarederror") 
 ```
 
 ## 5) create workflow spec
@@ -229,6 +255,10 @@ mdl.rf = rand_forest(mtry = tune(), min_n = tune(), trees = 500) %>%
 wf.rf = workflow() %>% 
   add_recipe(rec) %>% 
   add_model(mdl.rf)
+#----------------------------
+wf.xgb = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(mdl.xgb)
 ```
 
 ## 6) execute wf on vfold using tunegrid
@@ -243,20 +273,43 @@ tg.rf = tune_grid(
   metrics = metric_set(mae, mape, rmse, rsq)
 )
 
-autoplot(tg.rf) %>% ggplotly()
+#autoplot(tg.rf) %>% ggplotly() %>% layout(title = 'rf hyperparmeter mixes & performance')
+
+#----------------------------
+set.seed(345)
+doParallel::registerDoParallel()
+
+tg.xgb = tune_grid(
+  object = wf.xgb,
+  resamples = vfold,
+  grid = 5,
+  metrics = metric_set(mae, mape, rmse, rsq)
+)
+
+autoplot(tg.xgb) %>% ggplotly() %>% layout(title = 'xgb hyperparmeter mixes & performance')
+
 ```
 
 ## 7) select best hps
 ```{r}
 (sb.hps.rf = tg.rf %>% select_best('rmse'))
-
+tg.rf %>% collect_metrics()
 tg.rf %>% collect_metrics() %>% filter(.config == 'Preprocessor1_Model08')
+#----------------------------
+(sb.hps.xgb = tg.xgb %>% select_best('rmse'))
+tg.xgb %>% collect_metrics()
+tg.xgb %>% collect_metrics() %>% filter(.config == 'Preprocessor1_Model2')
+
 ```
 
 ## 8) finalize workflow & fit model
 ```{r}
 wf.rf.fin = wf.rf %>% finalize_workflow(
   parameters = sb.hps.rf
+)
+#----------------------------
+wf.xgb.fin = wf.xgb %>% finalize_workflow(
+  parameters = sb.hps.xgb
 )
 ```
 
@@ -265,8 +318,12 @@ wf.rf.fin = wf.rf %>% finalize_workflow(
 wf.rf.fin %>%
   fit(train) %>% 
   pull_workflow_fit() %>% 
-  vip::vip(aesthetics = list(alpha = 0.75, fill = 'mediumpurple4'))
-  
+  vip::vip(aesthetics = list(alpha = 0.75, fill = 'forestgreen'))
+#----------------------------
+wf.xgb.fin %>%
+  fit(train) %>% 
+  pull_workflow_fit() %>% 
+  vip::vip(aesthetics = list(alpha = 0.75, fill = 'slateblue4'))
 ```
 
 ## 10) evaluate performance on test
@@ -278,22 +335,42 @@ wf.rf.fin %>%
   collect_predictions() %>%
   select(.pred, turbine_rated_capacity_k_w) %>% 
   metric_set(mae, mape, rmse, rsq)(truth = turbine_rated_capacity_k_w, estimate = .pred)
+#----------------------------
+#wf.xgb.fin %>% last_fit(split) %>% collect_metrics()
+
+wf.xgb.fin %>%
+  last_fit(split) %>%
+  collect_predictions() %>%
+  select(.pred, turbine_rated_capacity_k_w) %>% 
+  metric_set(mae, mape, rmse, rsq)(truth = turbine_rated_capacity_k_w, estimate = .pred)
 ```
 
 ### 11) viz predictions vs test
 ```{r}
 ggplotly(
-
 wf.rf.fin %>%
   last_fit(split) %>%
   collect_predictions() %>%
   ggplot(aes(x = turbine_rated_capacity_k_w, y = .pred)) +
   geom_point(
     alpha = 0.75,
-    color = 'seagreen4'
+    color = 'forestgreen'
     ) +
-  labs(title = 'Test Dataset: Actuals vs Predictions')
-
+  geom_abline(intercept = 0, slope = 1, linetype = 'dashed', color = 'darkgrey', alpha = 0.5) +
+  labs(title = 'RF: Test Dataset: Actuals vs Predictions')
+)
+#----------------------------
+ggplotly(
+wf.xgb.fin %>%
+  last_fit(split) %>%
+  collect_predictions() %>%
+  ggplot(aes(x = turbine_rated_capacity_k_w, y = .pred)) +
+  geom_point(
+    alpha = 0.75,
+    color = 'slateblue4'
+    ) +
+  geom_abline(intercept = 0, slope = 1, linetype = 'dashed', color = 'darkgrey', alpha = 0.5) +
+  labs(title = 'XGB: Test Dataset: Actuals vs Predictions')
 )
 ```
 
