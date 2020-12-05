@@ -1,0 +1,299 @@
+---
+title: "Wind Turbines"
+author: 'Jeremiah Wang'
+date: 'December 2020'
+output:
+  html_document:
+    theme: simplex
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+ 
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+
+library(tidymodels);library(usemodels)
+```
+
+# Objective
+Predict the capacity of wind turbines in Canada based on turbine features
+
+## Algos
+Type: Supervised Machine Learning
+
+1. Decision Trees
+2. Random Forests
+3. XGBoost (Gradient Boosted Trees)
+
+## Learning Goals
+
+1. Learn how to use the 'usemodels' package
+2. Compare implementations / algo differences of dt, rf, and xgb
+
+# Get Data
+```{r}
+#a = read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-10-27/wind-turbine.csv")
+#saveRDS(a, 'a.rds')
+a = readRDS('a.rds') %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character),factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is.numeric)
+  )
+
+a %>% sample_n(5)
+
+#remove unnecessary cols
+
+a = a %>% select(
+    -notes,
+    -turbine_identifier,
+    -turbine_number_in_project,
+    -objectid,
+    -total_project_capacity_mw,
+    #removing these vars below b/c it would be unrealistic to use them for predictions
+    #we likely wouldn't have such information with new data
+    -model, 
+    -latitude,
+    -longitude,
+    -project_name
+)
+a %>% sample_n(5)
+```
+# 5 min EDA
+### viz missing
+```{r}
+a %>% visdat::vis_dat()
+
+a %>% miss_var_summary()
+
+#since the missing feature is the predictor/dependent var, let's remove those rows
+#remove the single missing row for 'project_name'
+
+a = a %>% na.omit()
+```
+### check missing, na, inf
+```{r}
+a %>% funModeling::status()
+```
+# EDA: nom vars
+
+### names
+```{r}
+nom.vars = a %>% select(where(is.factor)) %>% colnames()
+```
+
+### sample
+```{r}
+a %>% select(nom.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(all_of(nom.vars)) %>% skim_without_charts()
+```
+
+### viz: level counts distribution
+```{r message=FALSE}
+a %>% funModeling::freq()
+```
+
+<h style="color: blue; font-size:16px;">Due to high number of levels, consider lumping levels for some of these features</h>
+
+### viz: mosaic plots
+```{r}
+#check out relationship of most frequent/largest levels of manufacturer and commissioning_date
+a %>% select(manufacturer, commissioning_date) %>% 
+  mutate(
+    commissioning_date = fct_lump_prop(commissioning_date, prop = 0.05),
+    manufacturer = fct_lump_prop(manufacturer, prop = 0.05)
+    ) %>%
+  filter(
+    commissioning_date != 'Other',
+    manufacturer != 'Other'
+    ) %>% 
+  ggpairs(
+    columns = c('manufacturer','commissioning_date'),
+      mapping = aes(color = manufacturer)
+  )
+```
+<h style="color: blue; font-size:16px;">It's apparent that turbine manufacturing volume differs by manufacturer (1) relative to other manufacturers in the same year (2) as well as to itself over time'</h>
+
+# EDA: num vars
+
+### names
+```{r}
+num.vars = a %>% select(where(is.numeric)) %>% colnames()
+```
+
+### sample
+```{r}
+a %>% select(num.vars) %>% sample_n(5)
+```
+
+### skim
+```{r}
+a %>% select(num.vars) %>% skim_without_charts()
+```
+
+### viz: distribution - density
+```{r}
+#a %>% select(num.vars) %>% DataExplorer::plot_histogram(nrow = 2, ncol = 1)
+a %>% select(num.vars) %>% DataExplorer::plot_density(nrow = 2, ncol = 1)
+```
+
+### viz: outliers
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_outlier()
+```
+
+### viz: normality
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_normality()
+```
+
+### viz: normality - outcome var only
+```{r}
+a %>% plot_ly(x = ~turbine_rated_capacity_k_w, nbinsx = 50)
+a %>% plot_ly(x = ~turbine_rated_capacity_k_w) %>% add_boxplot() %>% layout(title = 'Distribution turbine_rated_capacity_k_w')
+
+a %>% mutate(manufacturer = fct_lump_prop(manufacturer, prop = 0.05)) %>%
+  filter(manufacturer != 'Other') %>%
+  mutate(manufacturer = fct_reorder(manufacturer, turbine_rated_capacity_k_w)) %>%
+  plot_ly(x = ~turbine_rated_capacity_k_w, color = ~manufacturer) %>% add_boxplot() %>% layout(title = 'Distribution turbine_rated_capacity_k_w by Largest Manufacturers')
+
+
+```
+
+### viz: correlations
+```{r}
+a %>% select(num.vars) %>% dlookr::plot_correlate()
+a %>% select(num.vars) %>% DataExplorer::plot_correlation()
+a %>% select(num.vars) %>% funModeling::correlation_table('turbine_rated_capacity_k_w')
+```
+
+# Preprocessing
+## 1) split data
+```{r}
+split = initial_split(a)
+train = training(split)
+test = testing(split)
+vfold = vfold_cv(train, v = 5, strata = turbine_rated_capacity_k_w) #for supervised continuous algo, stratify on the outcome var
+```
+
+```{r eval=FALSE}
+a %>% use_ranger(turbine_rated_capacity_k_w ~ .)
+```
+
+
+## 2) create recipe spec
+```{r}
+rec =
+  train %>% recipe(turbine_rated_capacity_k_w ~ .) %>% 
+  step_zv(all_numeric(),-all_outcomes()) %>% step_nzv(all_numeric(),-all_outcomes()) %>% step_corr(all_numeric(),-all_outcomes()) %>% 
+  step_normalize(all_numeric(),-all_outcomes())
+```
+
+## 3) preprocess
+```{r}
+rec %>% prep %>% juice %>% head
+rec %>% prep %>% bake(new_data = test) %>% head
+```
+
+## 4) create model spec
+```{r}
+mdl.rf = rand_forest(mtry = tune(), min_n = tune(), trees = 500) %>% 
+  set_mode("regression") %>% 
+  set_engine("ranger", importance = "impurity_corrected") 
+```
+
+## 5) create workflow spec
+```{r}
+wf.rf = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(mdl.rf)
+```
+
+## 6) execute wf on vfold using tunegrid
+```{r message=FALSE}
+set.seed(345)
+doParallel::registerDoParallel()
+
+tg.rf = tune_grid(
+  object = wf.rf,
+  resamples = vfold,
+  grid = 10,
+  metrics = metric_set(mae, mape, rmse, rsq)
+)
+
+autoplot(tg.rf) %>% ggplotly()
+```
+
+## 7) select best hps
+```{r}
+(sb.hps.rf = tg.rf %>% select_best('rmse'))
+
+tg.rf %>% collect_metrics() %>% filter(.config == 'Preprocessor1_Model08')
+```
+
+## 8) finalize workflow & fit model
+```{r}
+wf.rf.fin = wf.rf %>% finalize_workflow(
+  parameters = sb.hps.rf
+)
+```
+
+## 9) check variable importance
+```{r}
+wf.rf.fin %>%
+  fit(train) %>% 
+  pull_workflow_fit() %>% 
+  vip::vip(aesthetics = list(alpha = 0.75, fill = 'mediumpurple4'))
+  
+```
+
+## 10) evaluate performance on test
+```{r}
+#wf.rf.fin %>% last_fit(split) %>% collect_metrics()
+
+wf.rf.fin %>%
+  last_fit(split) %>%
+  collect_predictions() %>%
+  select(.pred, turbine_rated_capacity_k_w) %>% 
+  metric_set(mae, mape, rmse, rsq)(truth = turbine_rated_capacity_k_w, estimate = .pred)
+```
+
+### 11) viz predictions vs test
+```{r}
+ggplotly(
+
+wf.rf.fin %>%
+  last_fit(split) %>%
+  collect_predictions() %>%
+  ggplot(aes(x = turbine_rated_capacity_k_w, y = .pred)) +
+  geom_point(
+    alpha = 0.75,
+    color = 'seagreen4'
+    ) +
+  labs(title = 'Test Dataset: Actuals vs Predictions')
+
+)
+```
+
