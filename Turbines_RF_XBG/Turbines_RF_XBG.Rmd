@@ -35,14 +35,13 @@ Predict the capacity of wind turbines in Canada based on turbine features
 ## Algos
 Type: Supervised Machine Learning
 
-1. Decision Trees
-2. Random Forests
-3. XGBoost (Gradient Boosted Trees)
+1. Random Forests
+2. XGBoost (Gradient Boosted Trees)
 
 ## Learning Goals
 
-1. Learn how to use the 'usemodels' package
-2. Compare implementations / algo differences of dt, rf, and xgb
+1. Learn how to use the 'xgboost' package within the tidymodels framework
+2. Compare implementations / algo differences of rf vs xgb
 
 # Get Data
 ```{r}
@@ -134,6 +133,7 @@ a %>% select(manufacturer, commissioning_date) %>%
       mapping = aes(color = manufacturer)
   )
 ```
+
 <h style="color: blue; font-size:16px;">It's apparent that turbine manufacturing volume differs by manufacturer (1) relative to other manufacturers in the same year (2) as well as to itself over time'</h>
 
 # EDA: num vars
@@ -170,14 +170,14 @@ a %>% select(num.vars) %>% dlookr::plot_normality()
 ```
 
 ### viz: normality - outcome var only
-```{r}
+```{r warning=FALSE, message=FALSE}
 a %>% plot_ly(x = ~turbine_rated_capacity_k_w, nbinsx = 50)
-a %>% plot_ly(x = ~turbine_rated_capacity_k_w) %>% add_boxplot() %>% layout(title = 'Distribution turbine_rated_capacity_k_w')
+a %>% plot_ly(x = ~turbine_rated_capacity_k_w) %>% add_boxplot() %>% layout(title = 'Distribution of turbine_rated_capacity_k_w')
 
 a %>% mutate(manufacturer = fct_lump_prop(manufacturer, prop = 0.05)) %>%
   filter(manufacturer != 'Other') %>%
   mutate(manufacturer = fct_reorder(manufacturer, turbine_rated_capacity_k_w)) %>%
-  plot_ly(x = ~turbine_rated_capacity_k_w, color = ~manufacturer) %>% add_boxplot() %>% layout(title = 'Distribution turbine_rated_capacity_k_w by Largest Manufacturers')
+  plot_ly(x = ~turbine_rated_capacity_k_w, color = ~manufacturer) %>% add_boxplot() %>% layout(title = 'Distribution of turbine_rated_capacity_k_w by Largest Manufacturers')
 
 
 ```
@@ -262,7 +262,7 @@ wf.xgb = workflow() %>%
 ```
 
 ## 6) execute wf on vfold using tunegrid
-```{r message=FALSE}
+```{r message=FALSE, out.width=1000}
 set.seed(345)
 doParallel::registerDoParallel()
 
@@ -273,7 +273,7 @@ tg.rf = tune_grid(
   metrics = metric_set(mae, mape, rmse, rsq)
 )
 
-#autoplot(tg.rf) %>% ggplotly() %>% layout(title = 'rf hyperparmeter mixes & performance')
+autoplot(tg.rf) %>% ggplotly() %>% layout(title = 'rf hyperparmeter mixes & performance')
 
 #----------------------------
 set.seed(345)
@@ -314,7 +314,7 @@ wf.xgb.fin = wf.xgb %>% finalize_workflow(
 ```
 
 ## 9) check variable importance
-```{r}
+```{r warning=FALSE}
 wf.rf.fin %>%
   fit(train) %>% 
   pull_workflow_fit() %>% 
