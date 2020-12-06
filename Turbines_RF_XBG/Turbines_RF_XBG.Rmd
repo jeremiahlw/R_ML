@@ -228,13 +228,16 @@ rec %>% prep %>% bake(new_data = test) %>% miss_var_summary()
 ## 4) create model spec
 ```{r}
 mdl.rf = rand_forest(
+  replace = FALSE, #if there are many factor vars with many levels, sampling w/O replace improves performance
   trees = 500,
   min_n = tune(), #complexity
   mtry = tune(), #randomness
   ) %>% set_mode("regression") %>%
   set_engine("ranger", importance = "impurity_corrected") 
 #----------------------------
-#https://bradleyboehmke.github.io/HOML/gbm.html#basic-gbm
+#https://parsnip.tidymodels.org/reference/boost_tree.html#:~:text=boost_tree()%20is%20a%20way,when%20creating%20the%20tree%20models.
+
+#https://bradleyboehmke.github.io/HOML/gbm.html#xgb-tuning-strategy
 mdl.xgb = boost_tree(
   trees = 1000,
   #complexity

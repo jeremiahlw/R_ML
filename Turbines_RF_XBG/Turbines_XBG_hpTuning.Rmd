@@ -1,0 +1,259 @@
+---
+title: "Wind Turbines_XGB_Tuning"
+author: 'Jeremiah Wang'
+date: 'December 2020'
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+ 
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+
+library(tidymodels);library(usemodels)
+```
+
+# Objective
+1. Learn about XGB hyperparameters (hps)
+2. Learn how to tune the hps
+3. Learn how to manually create various grid spaces
+
+##Resources
+
+1. Tuning Strategies
+    + https://bradleyboehmke.github.io/HOML/gbm.html#xgb-tuning-strategy
+2. parnship:boost_tree doc
+    + https://parsnip.tidymodels.org/reference/boost_tree.html#arguments
+2. Param grids
+    + https://dials.tidymodels.org/reference/index.html
+        + any grid_* functions
+
+## Algos
+Supervised Machine Learning: XGBoost (Gradient Boosted Trees)
+
+# Get Data
+```{r}
+#a = read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-10-27/wind-turbine.csv")
+#saveRDS(a, 'a.rds')
+a = readRDS('a.rds') %>% 
+  clean_names() %>% 
+  mutate(across(where(is.character),factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.factor),
+    where(is.numeric)
+  )
+
+a %>% sample_n(5)
+
+#remove unnecessary cols
+a = a %>% select(
+    -notes,
+    -turbine_identifier,
+    -turbine_number_in_project,
+    -objectid,
+    -total_project_capacity_mw,
+    #removing these vars below b/c it would be unrealistic to use them for predictions
+    #we likely wouldn't have such information with new data
+    -model, 
+    -latitude,
+    -longitude,
+    -project_name
+)
+
+a %>% sample_n(5)
+
+# 5 min EDA
+### viz missing
+
+#a %>% visdat::vis_dat()
+
+#a %>% miss_var_summary()
+
+#since the missing feature is the predictor/dependent var, let's remove those rows
+#remove the single missing row for 'project_name'
+
+a = a %>% na.omit()
+
+#a %>% miss_var_summary()
+```
+
+# Preprocessing
+## 1) split data
+```{r}
+split = initial_split(a)
+train = training(split)
+test = testing(split)
+vfold = vfold_cv(train, v = 10, strata = turbine_rated_capacity_k_w) #for supervised continuous algo, stratify on the outcome var
+```
+
+```{r eval=FALSE}
+a %>% use_xgboost(turbine_rated_capacity_k_w ~ .)
+```
+
+## 2) create recipe spec
+```{r}
+rec =
+  train %>% recipe(turbine_rated_capacity_k_w ~ .) %>% 
+  step_novel(all_nominal(), -all_outcomes()) %>% 
+  step_zv(all_numeric(),-all_outcomes()) %>%
+  step_nzv(all_numeric(),-all_outcomes()) %>%
+  step_corr(all_numeric(),-all_outcomes()) %>% 
+  step_other(all_nominal(),-all_outcomes(), threshold =  0.01) %>% 
+  step_normalize(all_numeric(),-all_outcomes()) %>% 
+  step_dummy(all_nominal(),-all_outcomes(),one_hot = TRUE)
+```
+
+## 3) preprocess
+```{r}
+rec %>% prep %>% juice %>% head
+rec %>% prep %>% bake(new_data = test) %>% head
+```
+```{r eval=FALSE}
+rec %>% prep %>% juice %>% miss_var_summary
+rec %>% prep %>% bake(new_data = test) %>% miss_var_summary()
+```
+
+
+## 4) create model spec
+```{r}
+#https://bradleyboehmke.github.io/HOML/gbm.html#xgboost-hyperparameters
+#https://parsnip.tidymodels.org/reference/boost_tree.html#arguments
+#xgboost's default value (shown in parentheses) for each parameter
+
+mdl.xgb = boost_tree(
+  trees = 1000,
+  #complexity
+  min_n = tune(), #min_child_weight (1)
+  tree_depth = tune(), #max_depth (6)
+  loss_reduction = tune(), #gamma(0) 'complexity'
+  #randomness
+  mtry = tune(), #colsample_bytree
+  sample_size = tune(), #subsample(1) ;  = 100%
+  #step size
+  learn_rate = tune() #i.e. 'shrinkage', 'eta (0.3)', smaller values require more trees 
+) %>% set_mode("regression") %>%
+  set_engine("xgboost") 
+```
+
+### create grids
+```{r}
+#Notes
+# some hps are dataset specific/sensitive; running train %>% parameters will show you those particular hps
+# running 'finalize' will adjust the ranges of those particular hps
+# running grid_* with size will give you an appropriate grid
+
+#template
+# mdl %>% 
+#   parameters() %>% 
+#   finalize(
+#     train %>% select(-outcome)
+#   ) %>% grid_*
+
+(grid.lh = mdl.xgb %>%
+  parameters() %>%
+  finalize(
+    train %>% select(-turbine_rated_capacity_k_w)
+    ) %>% grid_latin_hypercube(size = 10))
+
+(grid.me = mdl.xgb %>%
+  parameters() %>%
+  finalize(
+    train %>% select( -turbine_rated_capacity_k_w)
+    ) %>% grid_max_entropy(size = 10))
+
+
+```
+
+
+## 5) create workflow spec
+```{r}
+wf.xgb = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(mdl.xgb)
+```
+
+## 6) execute wf on vfold using tunegrid
+```{r message=FALSE, out.width=1000}
+
+set.seed(345)
+doParallel::registerDoParallel()
+
+tg.xgb = tune_grid(
+  object = wf.xgb,
+  resamples = vfold,
+  grid = grid.me,
+  metrics = metric_set(mae, mape, rmse, rsq)
+)
+
+autoplot(tg.xgb) %>% ggplotly() %>% layout(title = 'xgb hyperparmeter mixes & performance')
+
+```
+
+## 7) select best hps
+```{r}
+(sb.hps.xgb = tg.xgb %>% select_best('rmse'))
+tg.xgb %>% collect_metrics() %>% filter(.metric == 'rmse') %>% arrange(mean) %>% DT::datatable()
+tg.xgb %>% collect_metrics() %>% filter(.config == 'Preprocessor1_Model09')
+
+```
+
+## 8) finalize workflow & fit model
+```{r}
+wf.xgb.fin = wf.xgb %>% finalize_workflow(
+  parameters = sb.hps.xgb
+)
+```
+
+## 9) check variable importance
+```{r warning=FALSE}
+wf.xgb.fin %>%
+  fit(train) %>% 
+  pull_workflow_fit() %>% 
+  vip::vip(aesthetics = list(alpha = 0.75, fill = 'slateblue4'))
+```
+
+## 10) evaluate performance on test
+```{r}
+#wf.xgb.fin %>% last_fit(split) %>% collect_metrics()
+
+wf.xgb.fin %>%
+  last_fit(split) %>%
+  collect_predictions() %>%
+  select(.pred, turbine_rated_capacity_k_w) %>% 
+  metric_set(mae, mape, rmse, rsq)(truth = turbine_rated_capacity_k_w, estimate = .pred)
+```
+
+### 11) viz predictions vs test
+```{r}
+ggplotly(
+wf.xgb.fin %>%
+  last_fit(split) %>%
+  collect_predictions() %>%
+  ggplot(aes(x = turbine_rated_capacity_k_w, y = .pred)) +
+  geom_point(
+    alpha = 0.75,
+    color = 'slateblue4'
+    ) +
+  geom_abline(intercept = 0, slope = 1, linetype = 'dashed', color = 'darkgrey', alpha = 0.5) +
+  labs(title = 'XGB: Test Dataset: Actuals vs Predictions')
+)
+```
+
