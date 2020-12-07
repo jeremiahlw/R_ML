@@ -14,7 +14,7 @@ output:
     toc_depth: 2
     df_print: paged
 ---
- 
+
 ```{r include=FALSE}
 #https://datatables.net/reference/option/
 options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
@@ -30,24 +30,38 @@ library(tidymodels);library(usemodels)
 ```
 
 # Objective
-1. Learn about XGB hyperparameters (hps)
-2. Learn how to tune the hps
-3. Learn how to manually create various grid spaces
 
-##Resources
+1.  Learn about XGB hyperparameters (hps)
+2.  Learn how to auto-tune the hps via
+    + the creation and use of different 'grid spaces'
+    + Bayesian hp optimization
 
-1. Tuning Strategies
-    + https://bradleyboehmke.github.io/HOML/gbm.html#xgb-tuning-strategy
-2. parnship:boost_tree doc
-    + https://parsnip.tidymodels.org/reference/boost_tree.html#arguments
-2. Param grids
-    + https://dials.tidymodels.org/reference/index.html
-        + any grid_* functions
+## Resources
+
+1.  parnship:boost\_tree doc
+
+    -   <https://parsnip.tidymodels.org/reference/boost_tree.html#arguments>
+
+2.  Tuning Strategies
+
+    -   <https://bradleyboehmke.github.io/HOML/gbm.html#xgb-tuning-strategy>
+
+3.  Param grids
+
+    -   <https://dials.tidymodels.org/reference/index.html>
+
+        -   any grid\_\* functions
+
+4.  Bayesian Optimization
+
+    -   <https://www.tidymodels.org/learn/work/bayes-opt/>
 
 ## Algos
+
 Supervised Machine Learning: XGBoost (Gradient Boosted Trees)
 
 # Get Data
+
 ```{r}
 #a = read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-10-27/wind-turbine.csv")
 #saveRDS(a, 'a.rds')
@@ -96,7 +110,9 @@ a = a %>% na.omit()
 ```
 
 # Preprocessing
+
 ## 1) split data
+
 ```{r}
 split = initial_split(a)
 train = training(split)
@@ -109,6 +125,7 @@ a %>% use_xgboost(turbine_rated_capacity_k_w ~ .)
 ```
 
 ## 2) create recipe spec
+
 ```{r}
 rec =
   train %>% recipe(turbine_rated_capacity_k_w ~ .) %>% 
@@ -122,17 +139,19 @@ rec =
 ```
 
 ## 3) preprocess
+
 ```{r}
 rec %>% prep %>% juice %>% head
 rec %>% prep %>% bake(new_data = test) %>% head
 ```
+
 ```{r eval=FALSE}
 rec %>% prep %>% juice %>% miss_var_summary
 rec %>% prep %>% bake(new_data = test) %>% miss_var_summary()
 ```
 
-
 ## 4) create model spec
+
 ```{r}
 #https://bradleyboehmke.github.io/HOML/gbm.html#xgboost-hyperparameters
 #https://parsnip.tidymodels.org/reference/boost_tree.html#arguments
@@ -154,11 +173,12 @@ mdl.xgb = boost_tree(
 ```
 
 ### create grids
+
 ```{r}
 #Notes
 # some hps are dataset specific/sensitive; running train %>% parameters will show you those particular hps
-# running 'finalize' will adjust the ranges of those particular hps
-# running grid_* with size will give you an appropriate grid
+# running 'finalize' on result above will adjust the ranges of those particular hps
+# running grid_* on result above will give you an appropriate grid
 
 #template
 # mdl %>% 
@@ -167,23 +187,21 @@ mdl.xgb = boost_tree(
 #     train %>% select(-outcome)
 #   ) %>% grid_*
 
-(grid.lh = mdl.xgb %>%
+hps.xgb = mdl.xgb %>%
   parameters() %>%
   finalize(
     train %>% select(-turbine_rated_capacity_k_w)
-    ) %>% grid_latin_hypercube(size = 10))
+    )
 
-(grid.me = mdl.xgb %>%
-  parameters() %>%
-  finalize(
-    train %>% select( -turbine_rated_capacity_k_w)
-    ) %>% grid_max_entropy(size = 10))
+(grid.lh = hps.xgb %>% grid_latin_hypercube(size = 10))
+
+(grid.me = hps.xgb %>% grid_max_entropy(size = 10))
 
 
 ```
 
-
 ## 5) create workflow spec
+
 ```{r}
 wf.xgb = workflow() %>% 
   add_recipe(rec) %>% 
@@ -191,7 +209,9 @@ wf.xgb = workflow() %>%
 ```
 
 ## 6) execute wf on vfold using tunegrid
+
 ```{r message=FALSE, out.width=1000}
+tictoc::tic()
 
 set.seed(345)
 doParallel::registerDoParallel()
@@ -199,30 +219,58 @@ doParallel::registerDoParallel()
 tg.xgb = tune_grid(
   object = wf.xgb,
   resamples = vfold,
-  grid = grid.me,
-  metrics = metric_set(mae, mape, rmse, rsq)
+  grid = grid.me,  #####tg vs tb
+  metrics = metric_set(rmse, mae, mape, rsq) #order of metrics matters!  optimization happens on 1st metric
 )
 
 autoplot(tg.xgb) %>% ggplotly() %>% layout(title = 'xgb hyperparmeter mixes & performance')
 
+tictoc::toc()
+beepr::beep(3)
+
+#----------------------------
+tictoc::tic()
+
+set.seed(345)
+doParallel::registerDoParallel()
+
+tb.xgb = tune_bayes(
+  object = wf.xgb,
+  resamples = vfold,
+  param_info = hps.xgb, ##### tg vs tb
+  metrics = metric_set(rmse, mae, mape, rsq), #order of metrics matters!  optimization happens on 1st metric
+  iter = 10, #####
+  control = control_bayes(no_improve = 10, 
+                            save_pred = T, verbose = T)
+)
+
+tictoc::toc()
+beepr::beep(5)
+
+autoplot(tb.xgb) %>% ggplotly() %>% layout(title = 'xgb hyperparmeter mixes & performance')
+
 ```
 
 ## 7) select best hps
-```{r}
-(sb.hps.xgb = tg.xgb %>% select_best('rmse'))
-tg.xgb %>% collect_metrics() %>% filter(.metric == 'rmse') %>% arrange(mean) %>% DT::datatable()
-tg.xgb %>% collect_metrics() %>% filter(.config == 'Preprocessor1_Model09')
 
+```{r}
+(sb.hps.tg.xgb = tg.xgb %>% select_best('rmse'))
+tg.xgb %>% collect_metrics() %>% filter(.metric == 'rmse') %>% arrange(mean) %>% DT::datatable()
+#----------------------------
+(sb.hps.tb.xgb = tb.xgb %>% select_best('rmse'))
+tb.xgb %>% collect_metrics() %>% filter(.metric == 'rmse') %>% arrange(mean) %>% DT::datatable()
 ```
 
 ## 8) finalize workflow & fit model
+
 ```{r}
 wf.xgb.fin = wf.xgb %>% finalize_workflow(
-  parameters = sb.hps.xgb
+  parameters = sb.hps.tb.xgb #params from tune bayesian are better
 )
 ```
 
 ## 9) check variable importance
+
 ```{r warning=FALSE}
 wf.xgb.fin %>%
   fit(train) %>% 
@@ -231,6 +279,7 @@ wf.xgb.fin %>%
 ```
 
 ## 10) evaluate performance on test
+
 ```{r}
 #wf.xgb.fin %>% last_fit(split) %>% collect_metrics()
 
@@ -242,6 +291,7 @@ wf.xgb.fin %>%
 ```
 
 ### 11) viz predictions vs test
+
 ```{r}
 ggplotly(
 wf.xgb.fin %>%
@@ -256,4 +306,3 @@ wf.xgb.fin %>%
   labs(title = 'XGB: Test Dataset: Actuals vs Predictions')
 )
 ```
-
