@@ -1,0 +1,189 @@
+---
+title: "PayRoll - T-Test"
+author: "Jeremiah Wang"
+date: "12/7/2020"
+output:
+  html_document:
+    theme: simplex
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{r}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+```
+
+```{r include=FALSE}
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+```
+
+# Get Data
+```{r message=FALSE, warning=FALSE}
+a = read_csv('raw_payroll_data.csv')
+a %>% head
+a %>% glimpse
+
+#simple cleaning
+#a = a %>% select(-id, -name)
+
+a = a %>% mutate(
+  salary = as.numeric(salary),
+  dept_id = as.factor(dept_id)
+)
+
+#dept_id should be a factor/category variable
+#especially import to convert if imputation is done
+
+a %>% head
+```
+# EDA
+
+## Check zeros, na, inf
+```{r}
+a %>% visdat::vis_dat()
+a %>% funModeling::status()
+a %>% DataExplorer::plot_missing()
+```
+## Check counts, levels
+```{r}
+a %>% count(dept_name, dept_id, name = 'count') %>% mutate(percent = count/sum(count)) %>% arrange(dept_name, -percent)
+
+a %>% select(dept_name) %>% freq
+
+a %>% count(name) %>% arrange(-n)
+```
+
+<h style="color: red; font-size:18px;">Clearly some dept names have been misspelled.  There are also duplicate names</h>
+
+### correct Dept Name Misspellings & remove duplicate names
+```{r}
+#correct dept misspellings
+a = a %>% mutate(
+  dept_name = if_else(dept_name == 'Business Developement', 'Business Development', dept_name),
+  dept_name = if_else(dept_name == 'Producdion', 'Production', dept_name),
+) %>% mutate(
+  dept_name = factor(dept_name)
+)
+
+#check
+a %>% select(dept_name) %>% freq
+
+#remove rows with duplicate names
+a = a %>% distinct(name, .keep_all = TRUE)
+
+#check
+#a %>% n_distinct()/a %>% nrow()
+```
+
+# Data Imputation
+
+### provided mapping reference 
+```{r}
+(dept.mapping = tibble(
+  dept_id = a %>% pull(dept_id) %>% unique() %>% sort,
+  dept_name = c('Human Resources', 'Design', 'Business Development', 'Accounting', 'Production'),
+))
+```
+Note!!
+I could use the provided dept mapping (replicated above) to impute [perfectly] the missing data for both dept_id & dept_name via some clever find and replacing.
+But . . . there's a faster and more automated way! Imputating via Machine Learning, specifically the Random Forest Algorithm (both Classification and Regression).
+
+### missing data reference
+```{r}
+# these rows are missing for dept_name
+a %>% filter(is.na(dept_name))
+missing.dept_name.ids = a %>% filter(is.na(dept_name)) %>% pull(id)
+
+# these rows are missing for dept_id
+a %>% filter(is.na(dept_id))
+missing.dept_id.ids = a %>% filter(is.na(dept_id)) %>% pull(id)
+
+# these rows are missing for salary
+a %>% filter(is.na(salary))
+missing.salary.ids = a %>% filter(is.na(salary)) %>% pull(id)
+
+```
+
+```{r warning=FALSE, message=FALSE}
+library(tidymodels)
+rec = a %>% recipe(salary ~ .) %>% 
+  step_bagimpute(dept_id, dept_name, impute_with = imp_vars(dept_id, dept_name)) %>% 
+  step_bagimpute(salary, impute_with = imp_vars(dept_id, dept_name))
+
+a.imputed = rec %>% prep %>% juice
+#a.imputed %>% DataExplorer::plot_missing()
+```
+<h style="color: blue; font-size:16px;">I have imputed the 4.81% missing data for salary as well</h>
+
+### proof of Random Forest Imputation
+```{r}
+dept.mapping
+
+a.imputed %>% filter(
+   id %in% missing.dept_name.ids
+)
+
+a.imputed %>% filter(
+   id %in% missing.dept_id.ids
+)
+
+a.imputed %>% filter(
+   id %in% missing.salary.ids
+)
+
+```
+```{r}
+a.imputed %>% group_by(dept_name) %>% summarise(
+  mean.salary = mean(salary),
+  median.salary = median(salary)
+)
+```
+
+Observation: For individuals who had missing 'salary' info, the random forest algorithm replaced the missing salary salary with the median salary of the department they belonged to
+
+```{r}
+a.imputed %>% 
+  plot_ly(x = ~dept_name, y = ~salary, color = ~dept_name) %>%
+  add_boxplot() %>% 
+  hide_legend() %>% 
+  layout(
+    title = 'Distribution of Salary by Department',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### Is there an sig diff between the avg salary of the depts?
+```{r}
+anova.salary.dept = aov(salary ~ dept_name, a.imputed)
+anova.salary.dept %>% tidy
+```
+
+Yes, the p values is less than 5%
+
+### What do pairwise-comparisons between the means of of the departments look like?
+```{r}
+TukeyHSD(anova.salary.dept)
+```
+
+### what specific pairwise-comparisons can we reliably trust?
+```{r}
+TukeyHSD(anova.salary.dept) %>% tidy %>% filter(adj.p.value < 0.05)
+```
+
+Looking at the salary distribution by dept viz above, the results above make sense
+
+# Conclusion
+<h style="color: blue; font-size:16px;"></h>
