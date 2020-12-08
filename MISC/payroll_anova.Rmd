@@ -1,0 +1,238 @@
+---
+title: "Investigation into Department PayRoll"
+subtitle: "Using ANOVA to Determine Statistically Significant Salary Differences across Departments "
+author: "Jeremiah Wang"
+date: "12/7/2020"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+
+```{=html}
+<style type="text/css">
+  body{
+  font-size: 12pt;
+}
+</style>
+```
+
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+
+library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(PerformanceAnalytics);library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+```
+
+# Get Data
+
+```{r message=FALSE, warning=FALSE}
+a = read_csv(
+  paste0(here::here(),'/raw_payroll_data.csv'
+  ))
+  
+a %>% head
+a %>% glimpse
+
+#simple cleaning
+#a = a %>% select(-id, -name)
+
+a = a %>% mutate(
+  salary = as.numeric(salary),
+  dept_id = as.factor(dept_id)
+)
+
+#dept_id should be a factor/category variable
+#especially import to convert if imputation is done
+
+a %>% head
+```
+
+# Exploratory Data Analysis
+
+## Check zeros, na, inf
+
+```{r}
+a %>% visdat::vis_dat()
+a %>% funModeling::status()
+a %>% DataExplorer::plot_missing()
+```
+
+## Check counts, levels
+
+```{r}
+a %>% count(dept_name, dept_id, name = 'count') %>% mutate(percent = count/sum(count)) %>% arrange(dept_name, -percent)
+
+a %>% select(dept_name) %>% freq
+
+a %>% count(name) %>% arrange(-n)
+```  
+
+<h style="color: red; font-size:18px;">Some dept names have been **misspelled**. Some names also have **duplicates** .</h>  
+
+
+### Correct dept name misspellings & Remove duplicate names
+
+```{r}
+#correct dept misspellings
+a = a %>% mutate(
+  dept_name = if_else(dept_name == 'Business Developement', 'Business Development', dept_name),
+  dept_name = if_else(dept_name == 'Producdion', 'Production', dept_name),
+) %>% mutate(
+  dept_name = factor(dept_name)
+)
+
+#check
+a %>% select(dept_name) %>% freq
+
+#remove rows with duplicate names
+a = a %>% distinct(name, .keep_all = TRUE)
+
+#check
+#a %>% n_distinct()/a %>% nrow()
+```
+
+# Data Imputation
+
+### provided mapping reference
+```{r}
+(dept.mapping = tibble(
+  dept_id = a %>% pull(dept_id) %>% unique() %>% sort,
+  dept_name = c('Human Resources', 'Design', 'Business Development', 'Accounting', 'Production'),
+))
+```
+
+<h style="color: blue; font-size:16px;">Note!! I could use the provided dept mapping (replicated above) to [perfectly] impute the missing data for both dept\_id & dept\_name via some clever find and replacing. <br><br> But . . . there's a faster and more automated way! *Imputation via Machine Learning*, specifically the Random Forest Algorithm (both Classification and Regression).</h>  
+
+### missing data reference
+```{r}
+# these rows are missing for dept_name
+a %>% filter(is.na(dept_name))
+missing.dept_name.ids = a %>% filter(is.na(dept_name)) %>% pull(id)
+
+# these rows are missing for dept_id
+a %>% filter(is.na(dept_id))
+missing.dept_id.ids = a %>% filter(is.na(dept_id)) %>% pull(id)
+
+# these rows are missing for salary
+a %>% filter(is.na(salary))
+missing.salary.ids = a %>% filter(is.na(salary)) %>% pull(id)
+
+```
+
+### actual imputation of dept\_id, dept\_name, salary
+
+```{r warning=FALSE, message=FALSE}
+library(tidymodels)
+
+rec = a %>% recipe(salary ~ .) %>% 
+  step_bagimpute(dept_id, dept_name, impute_with = imp_vars(dept_id, dept_name)) %>% 
+  step_bagimpute(salary, impute_with = imp_vars(dept_id, dept_name))
+
+a.imputed = rec %>% prep %>% juice
+#a.imputed %>% DataExplorer::plot_missing()
+```
+
+### proof of perfect Random Forest Imputation
+
+### original reference
+
+```{r}
+dept.mapping
+```
+
+### observations with imputated dept name
+```{r}
+a.imputed %>% filter( id %in% missing.dept_name.ids )
+```
+
+### observations with imputated dept id
+```{r}
+a.imputed %>% filter( id %in% missing.dept_id.ids )
+```
+
+### observations with imputated salary
+```{r}
+a.imputed %>% filter( id %in% missing.salary.ids )
+```
+
+### avg and median salary by department
+```{r}
+a.imputed %>% group_by(dept_name) %>% summarise(
+  mean.salary = mean(salary),
+  median.salary = median(salary)
+)
+```
+
+<h style="color: blue; font-size:16px;">Observation: For individuals who had missing 'salary' info, the random forest algorithm replaced the missing salary salary with the median salary of the department they belonged to.</h>  
+
+
+# Determining Statistical Signifiance of Differences
+
+## visualize salary distributions by department
+
+```{r warning=FALSE}
+a.imputed %>% 
+  plot_ly(x = ~dept_name, y = ~salary, color = ~dept_name) %>%
+  add_boxplot(quartilemethod = 'inclusive') %>% 
+  hide_legend() %>% 
+  layout(
+    title = 'Distribution of Salary by Department',
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+## chart salary distributions by department
+
+```{r}
+a.imputed %>% group_by(dept_name) %>% summarise(
+  q1 = quantile(salary, 0.25),
+  q2 = quantile(salary, 0.50),
+  q3 = quantile(salary, 0.75),
+)
+```
+
+### Is there an sig diff between the median salaries of the depts?
+
+```{r}
+anova.salary.dept = aov(salary ~ dept_name, a.imputed)
+anova.salary.dept %>% tidy
+```
+
+<h style="color: blue; font-size:36px; font-weight: bold">Conclusion: Yes, the p values is less than 5%</h>  
+
+# Even Further Investigation
+
+### For what specific pairwise-comparisons is there a sig diff?
+
+## list *all* pairwise-comparisons
+
+```{r}.
+TukeyHSD(anova.salary.dept)
+```
+
+## list *only statistically significant* pairwise-comparisons
+
+```{r}
+TukeyHSD(anova.salary.dept) %>% tidy %>% filter(adj.p.value < 0.05) %>% select(contrast, adj.p.value)
+```
+
+<h style="color: blue; font-size:20px;">Clearly ,there is financial mismanagement/ **fraudulent activity occurring in the Design Department.**
+<br><br>
+Looking at the salary distribution by dept viz above, the results above make sense
+<br><br>
+The 'Design' dept clearly has a median pay above that of the other departments. Even more telling, its first quartile, at \$103,250 is nearly higher than the median of 3 other departments.
+</h>  
