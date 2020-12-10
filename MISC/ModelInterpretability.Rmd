@@ -1,0 +1,174 @@
+---
+title: "Model Interpretability"
+author: "Jeremiah W"
+date: "December 2020"
+output: html_document
+---
+
+<style type="text/css">
+  body{
+  font-size: 18pt;
+}
+</style>
+
+# Resources
+[Vid](https://youtu.be/eNvKnhMJd2o)
+[DataDic](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data)
+[R txbk](https://bradleyboehmke.github.io/HOML/iml.html)
+[Gumped IML txbk](http://uc-r.github.io/2018/08/01/iml-pkg/)
+[PIMP](https://christophm.github.io/interpretable-ml-book/feature-importance.html#advantages-9)
+[ALE](https://christophm.github.io/interpretable-ml-book/ale.html)
+[LIME](https://christophm.github.io/interpretable-ml-book/lime.html)
+
+
+```{r setup, include=FALSE}
+#options(digits = 2, scipen = 2)
+library(tidyverse)
+library(tidymodels)
+library(AmesHousing)
+library(broom)
+library(iml)
+
+a = make_ames()
+```
+
+```{r}
+a = a %>%
+  select_if(is.numeric) %>% 
+  relocate(Sale_Price)
+```
+
+```{r warning=FALSE, message=FALSE}
+lm = lm(Sale_Price ~ . , data = a)
+lm %>% tidy
+```
+
+#Regression w/effect plots
+
+### problem: 'coef/estimate plots'
+```{r warning=FALSE, message=FALSE}
+#coef plot w/confi intervals
+lm %>% tidy(conf.int = TRUE) %>%  #AWESOME, can get conf intervals w/this arg
+  .[-1,] %>% 
+  ggplot(aes(x = term, y = estimate)) +
+  geom_point() +
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high)) +
+  coord_flip() +
+  scale_y_log10()
+```
+
+<PROBLEM> the problem with this plot is that the features are not in the same units of measure/scales 
+
+e.g.
+LotFrontage: Linear FEET of street connected to property
+<VS>
+FullBath: COUNT Full bathrooms above grade
+
+### solution: 'effects plot'
+```{r}
+#multiple coefs by actual values to see *contribution*
+a %>% mutate(pk = row_number()) %>%
+  pivot_longer(cols = c(everything(), -Sale_Price, -pk)) %>% left_join(
+    lm %>% tidy %>% 
+    slice(-1)  %>%  #don't need intercept since it's a constant 
+    select(term, estimate),
+    by = c('name' = 'term')
+  ) %>% mutate(
+    effect = value * estimate,
+    pos_neg = if_else(effect < 0, 'Negative', 'Positive'),
+    effect = abs(effect)
+  ) %>% ggplot(aes(name, effect, color = pos_neg)) +
+  geom_boxplot() + coord_flip() +
+  scale_y_log10()
+
+```
+# Model Agnostic Methods
+
+### setup
+```{r}
+### tidymodels:spec models
+
+rf = rand_forest() %>% 
+  set_mode('regression') %>% 
+  set_engine('ranger')
+
+xgb = boost_tree() %>% 
+  set_mode('regression') %>% 
+  set_engine('xgboost')
+
+### tidymodels:fit models
+
+set.seed(345)
+rf = rf %>% fit(Sale_Price ~ ., data = a)
+xgb = xgb %>% fit(Sale_Price ~ ., data = a)
+```
+# [Intuition](https://christophm.github.io/interpretable-ml-book/ale.html#motivation-and-intuition)
+
+To summarize how each type of plot (PDP, ALE) calculates the effect of a feature at a certain grid value v:
+<br><br>
+Partial Dependence Plots: "Let me show you what the model predicts on average when each data instance has the value v for that feature. I *ignore whether the value v makes sense for all data instances*."
+<br><br>
+ALE plots: "Let me show you how the model predictions change in a small "window" of the feature around v *for data instances* in that window."
+
+## IML: PIMP  
+[Feature] Permutation IMportance Plots
+
+The feature importance measure works by calculating the increase of the model’s prediction error after permuting the feature. 
+
+PredictorComponents > Predictor > FeatureImp > plot
+
+### Create Predictor Components
+[Ref](http://uc-r.github.io/iml-pkg#procedures)
+```{r}
+# 1. create a data frame with just the vars/features/x
+x.data = a %>% select(-Sale_Price) %>% as.data.frame()
+
+# 2. create vector of the outcome/y
+y.data = a$Sale_Price
+```
+
+### Create Predictor Obj
+```{r}
+# Similar to DALEX and lime, the *Predictor* object holds the (1) model, (2) the features data, and the (3) outcome data
+
+rf.predictor = Predictor$new(rf, data = x.data, y = y.data)
+
+xgb.predictor = Predictor$new(xgb, data = x.data, y = y.data)
+```
+
+### Create & Viz FeatureImp Obj
+[Ref](http://uc-r.github.io/iml-pkg#vip)
+```{r message=FALSE}
+(rf.fimp = FeatureImp$new(rf.predictor, loss = 'mae'))
+(xgb.fimp = FeatureImp$new(xgb.predictor, loss = 'mae'))
+
+rf.fimp %>% plot
+xgb.fimp %>% plot
+```
+Interpretation: If Gr_Liv_Area is removed, model loses of its predictive power
+
+## IML: ALE
+Accumulated Local Effects
+
+Shows distribution of average effects from each feature
+
+ALE plots are generally 'better' than pdp plots since they account for feature correlation.  PDP plots assume features are uncorrelated, which is rarely the case IRL (see proof features ARE correleated below)
+
+Predictor > FeatureEffects > plot
+Predictor > FeatureEffect > plot #NOT plural
+
+### Check: Confirming Feature Correlation 
+```{r}
+a %>% DataExplorer::plot_correlation()
+a %>% dlookr::correlate() %>% filter(coef_corr > 0.5 | coef_corr < -0.5) %>% arrange(-coef_corr)
+```
+
+### Create & Plot FeatureEffects object
+```{r fig.width=15, fig.height=15, message=FALSE, warning=FALSE}
+#marginal effect of each feature
+rf.ale = FeatureEffects$new(rf.predictor)
+xgb.ale = FeatureEffects$new(xgb.predictor)
+
+rf.ale %>% plot
+xgb.ale %>% plot
+```
