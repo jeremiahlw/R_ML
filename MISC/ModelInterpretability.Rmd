@@ -12,21 +12,22 @@ output: html_document
 </style>
 
 # Resources
-[Vid](https://youtu.be/eNvKnhMJd2o)
-[DataDic](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data)
-[IML vignette](https://cran.r-project.org/web/packages/iml/vignettes/intro.html)
-[PFI](https://christophm.github.io/interpretable-ml-book/feature-importance.html#advantages-9)
-[ALE](https://christophm.github.io/interpretable-ml-book/ale.html)
-[LIME](https://christophm.github.io/interpretable-ml-book/lime.html)
-[R txbk](https://bradleyboehmke.github.io/HOML/iml.html)
+
++ [Vid](https://youtu.be/eNvKnhMJd2o)
++ [DataDic](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data)
++ [IML vignette](https://cran.r-project.org/web/packages/iml/vignettes/intro.html)
++ [PFI](https://christophm.github.io/interpretable-ml-book/feature-importance.html#advantages-9)
++ [ALE](https://christophm.github.io/interpretable-ml-book/ale.html)
++ [LIME](https://christophm.github.io/interpretable-ml-book/lime.html)
++ [R txbk](https://bradleyboehmke.github.io/HOML/iml.html)
 
 ```{r setup, include=FALSE}
 #options(digits = 2, scipen = 2)
-library(tidyverse)
 library(tidymodels)
 library(AmesHousing)
 library(broom)
 library(iml);library(pdp)
+library(tidyverse)
 a = make_ames()
 ```
 
@@ -153,7 +154,7 @@ a %>% dlookr::correlate() %>% filter(coef_corr > 0.5 | coef_corr < -0.5) %>% arr
 ```
 
 ### Create & Plot FeatureEffects object
-```{r fig.width=15, fig.height=15, message=FALSE, warning=FALSE}
+```{r fig.width=12, message=FALSE, warning=FALSE}
 #marginal effect of each feature
 rf.ale = FeatureEffects$new(rf.predictor)
 xgb.ale = FeatureEffects$new(xgb.predictor)
@@ -172,7 +173,7 @@ ALE plots: "Let me show you how the model predictions change in a small "window"
 
 ## *TreeSurrogate* (Global Surrogate Model)
 ```{r}
-kidai = 木代ｗ
+#kidai = 木代
 
 rf.kidai = TreeSurrogate$new(rf.predictor, maxdepth = 3)
 xgb.kidai = TreeSurrogate$new(xgb.predictor, maxdepth = 3)
@@ -184,10 +185,6 @@ xgb.kidai %>% plot
 cbind(
 rf.kidai$predict(a) %>% head,
 xgb.kidai$predict(a) %>% head
-) %>% rename(
-  rf = '.y.hat'
-) %>% rename(
-  xgb = '.y.hat'
 )
 ```
 
@@ -197,21 +194,18 @@ xgb.kidai$predict(a) %>% head
 ### find the observation with the greatest Gr_Liv_Area
 ```{r}
 #GrLivArea: Above grade (ground) living area square feet
-x.data %>% pull(Gr_Liv_Area) %>% sort(decreasing = TRUE) %>% .[1]
-x.data %>% mutate(rn = row_number()) %>% filter(Gr_Liv_Area == 5642) %>% relocate(rn, Gr_Liv_Area)
+x.data$Gr_Liv_Area %>% sort(decreasing = TRUE) %>% head(1)
+x.data %>% mutate(rn = dplyr::row_number(x.data$Gr_Liv_Area)) %>% filter(Gr_Liv_Area == 5642) %>% relocate(rn, Gr_Liv_Area)
 ```
 
 ### explain the prediction for that observation
-```{r}
+```{r fig.width=12}
 (rf.lime = LocalModel$new(rf.predictor, x.interest = x.data[1499,]))
 (xgb.lime = LocalModel$new(xgb.predictor, x.interest = x.data[1499,]))
 
 rf.lime %>% plot
 xgb.lime %>% plot
 ```
-
-
-
 
 ## *Interaction*
 <h style="color: red; font-size:18px;">Warning: Takes ~10m to run</h>
