@@ -14,12 +14,11 @@ output: html_document
 # Resources
 [Vid](https://youtu.be/eNvKnhMJd2o)
 [DataDic](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data)
-[R txbk](https://bradleyboehmke.github.io/HOML/iml.html)
-[Gumped IML txbk](http://uc-r.github.io/2018/08/01/iml-pkg/)
-[PIMP](https://christophm.github.io/interpretable-ml-book/feature-importance.html#advantages-9)
+[IML vignette](https://cran.r-project.org/web/packages/iml/vignettes/intro.html)
+[PFI](https://christophm.github.io/interpretable-ml-book/feature-importance.html#advantages-9)
 [ALE](https://christophm.github.io/interpretable-ml-book/ale.html)
 [LIME](https://christophm.github.io/interpretable-ml-book/lime.html)
-
+[R txbk](https://bradleyboehmke.github.io/HOML/iml.html)
 
 ```{r setup, include=FALSE}
 #options(digits = 2, scipen = 2)
@@ -27,8 +26,7 @@ library(tidyverse)
 library(tidymodels)
 library(AmesHousing)
 library(broom)
-library(iml)
-
+library(iml);library(pdp)
 a = make_ames()
 ```
 
@@ -46,7 +44,7 @@ lm %>% tidy
 #Regression w/effect plots
 
 ### problem: 'coef/estimate plots'
-```{r warning=FALSE, message=FALSE}
+```{r warning=FALSE, message=FALSE, fig.width=12}
 #coef plot w/confi intervals
 lm %>% tidy(conf.int = TRUE) %>%  #AWESOME, can get conf intervals w/this arg
   .[-1,] %>% 
@@ -65,7 +63,7 @@ LotFrontage: Linear FEET of street connected to property
 FullBath: COUNT Full bathrooms above grade
 
 ### solution: 'effects plot'
-```{r}
+```{r fig.width=12}
 #multiple coefs by actual values to see *contribution*
 a %>% mutate(pk = row_number()) %>%
   pivot_longer(cols = c(everything(), -Sale_Price, -pk)) %>% left_join(
@@ -84,7 +82,7 @@ a %>% mutate(pk = row_number()) %>%
 ```
 # Model Agnostic Methods
 
-### setup
+### 1 Create and Fit Models
 ```{r}
 ### tidymodels:spec models
 
@@ -102,22 +100,8 @@ set.seed(345)
 rf = rf %>% fit(Sale_Price ~ ., data = a)
 xgb = xgb %>% fit(Sale_Price ~ ., data = a)
 ```
-# [Intuition](https://christophm.github.io/interpretable-ml-book/ale.html#motivation-and-intuition)
 
-To summarize how each type of plot (PDP, ALE) calculates the effect of a feature at a certain grid value v:
-<br><br>
-Partial Dependence Plots: "Let me show you what the model predicts on average when each data instance has the value v for that feature. I *ignore whether the value v makes sense for all data instances*."
-<br><br>
-ALE plots: "Let me show you how the model predictions change in a small "window" of the feature around v *for data instances* in that window."
-
-## IML: PIMP  
-[Feature] Permutation IMportance Plots
-
-The feature importance measure works by calculating the increase of the model’s prediction error after permuting the feature. 
-
-PredictorComponents > Predictor > FeatureImp > plot
-
-### Create Predictor Components
+### 2 Create Predictor Obj Components
 [Ref](http://uc-r.github.io/iml-pkg#procedures)
 ```{r}
 # 1. create a data frame with just the vars/features/x
@@ -127,7 +111,7 @@ x.data = a %>% select(-Sale_Price) %>% as.data.frame()
 y.data = a$Sale_Price
 ```
 
-### Create Predictor Obj
+### 3 Create Predictor Obj
 ```{r}
 # Similar to DALEX and lime, the *Predictor* object holds the (1) model, (2) the features data, and the (3) outcome data
 
@@ -135,6 +119,11 @@ rf.predictor = Predictor$new(rf, data = x.data, y = y.data)
 
 xgb.predictor = Predictor$new(xgb, data = x.data, y = y.data)
 ```
+
+## PFI: *FeatureImp*
+Permutation Feature Importance Plots
+
+The feature importance measure works by calculating the 'loss' in performance measure after permuting the feature. 
 
 ### Create & Viz FeatureImp Obj
 [Ref](http://uc-r.github.io/iml-pkg#vip)
@@ -147,7 +136,7 @@ xgb.fimp %>% plot
 ```
 Interpretation: If Gr_Liv_Area is removed, model loses of its predictive power
 
-## IML: ALE
+## ALE: *FeatureEffects*
 Accumulated Local Effects
 
 Shows distribution of average effects from each feature
@@ -157,8 +146,8 @@ ALE plots are generally 'better' than pdp plots since they account for feature c
 Predictor > FeatureEffects > plot
 Predictor > FeatureEffect > plot #NOT plural
 
-### Check: Confirming Feature Correlation 
-```{r}
+### Check: Confirm Feature Correlation 
+```{r fig.width=12}
 a %>% DataExplorer::plot_correlation()
 a %>% dlookr::correlate() %>% filter(coef_corr > 0.5 | coef_corr < -0.5) %>% arrange(-coef_corr)
 ```
@@ -171,4 +160,62 @@ xgb.ale = FeatureEffects$new(xgb.predictor)
 
 rf.ale %>% plot
 xgb.ale %>% plot
+```
+
+[PDP vs ALE](https://christophm.github.io/interpretable-ml-book/ale.html#motivation-and-intuition)
+
+To summarize how each type of plot (PDP, ALE) calculates the effect of a feature at a certain grid value v:
+<br><br>
+Partial Dependence Plots: "Let me show you what the model predicts on average when each data instance has the value v for that feature. I *ignore whether the value v makes sense for all data instances*."
+<br><br>
+ALE plots: "Let me show you how the model predictions change in a small "window" of the feature around v *for data instances* in that window."
+
+## *TreeSurrogate* (Global Surrogate Model)
+```{r}
+kidai = 木代ｗ
+
+rf.kidai = TreeSurrogate$new(rf.predictor, maxdepth = 3)
+xgb.kidai = TreeSurrogate$new(xgb.predictor, maxdepth = 3)
+
+rf.kidai %>% plot
+xgb.kidai %>% plot
+
+#making predictions using the surrogate model
+cbind(
+rf.kidai$predict(a) %>% head,
+xgb.kidai$predict(a) %>% head
+) %>% rename(
+  rf = '.y.hat'
+) %>% rename(
+  xgb = '.y.hat'
+)
+```
+
+
+## LIME *LocalModel* (Local Surrogate Model)
+
+### find the observation with the greatest Gr_Liv_Area
+```{r}
+#GrLivArea: Above grade (ground) living area square feet
+x.data %>% pull(Gr_Liv_Area) %>% sort(decreasing = TRUE) %>% .[1]
+x.data %>% mutate(rn = row_number()) %>% filter(Gr_Liv_Area == 5642) %>% relocate(rn, Gr_Liv_Area)
+```
+
+### explain the prediction for that observation
+```{r}
+(rf.lime = LocalModel$new(rf.predictor, x.interest = x.data[1499,]))
+(xgb.lime = LocalModel$new(xgb.predictor, x.interest = x.data[1499,]))
+
+rf.lime %>% plot
+xgb.lime %>% plot
+```
+
+
+
+
+## *Interaction*
+<h style="color: red; font-size:18px;">Warning: Takes ~10m to run</h>
+```{r eval=FALSE}
+rf.interact = Interaction$new(rf.predictor)
+rf.interact %>% plot
 ```
