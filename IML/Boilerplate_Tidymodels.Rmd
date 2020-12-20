@@ -1,0 +1,101 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r include=FALSE}
+library(tidyverse)
+library(tidymodels)
+d = diamonds %>% slice_sample(prop = 0.03) #use less data for speed
+```
+
+```{r}
+str(d)
+```
+
+
+### 0) split data
+```{r}
+split = d %>% initial_split(strata = price)
+train = split %>% training
+test = split %>% testing
+vfold = train %>% vfold_cv(strata = price)
+```
+
+
+### 1) create specs for rec, mdl, wf
+```{r}
+rec = train %>% recipe(price ~ . ) %>% 
+  step_log(price, base = 10) %>% 
+  step_zv(all_numeric(), -all_outcomes()) %>% 
+  step_nzv(all_numeric(), -all_outcomes()) %>% 
+  step_corr(all_numeric(), -all_outcomes()) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  step_pca(all_numeric(), -all_outcomes(), num_comp = 3)
+
+#rec %>% tidy
+#rec %>% prep
+#----------------------------
+
+mdl = parsnip::rand_forest(
+  min_n = tune(),
+  mtry = tune()
+) %>%
+  set_mode('regression') %>% 
+  set_engine('ranger', importance = 'permutation')
+
+#----------------------------
+
+wf = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(mdl)
+```
+
+### 1b) test rec
+```{r}
+rec %>% prep %>% bake(new_data = NULL) %>% head
+rec %>% prep %>% bake(new_data = test) %>% head
+```
+
+### 2) execute tg, finalize wf
+```{r}
+set.seed(345)
+doParallel::registerDoParallel()
+
+tg = tune_grid(
+  object = wf,
+  resamples = vfold,
+  grid = 10
+)
+
+#----------------------------
+
+wf = wf %>% finalize_workflow(
+  parameters = tg %>% select_best()
+)
+
+beepr::beep(5)
+```
+
+### 3) using wf, fit on train, finalize model
+```{r}
+(mdl = wf %>% fit(train) %>% pull_workflow_fit())
+
+```
+
+### 4) using wf, fit on train, evaluate on test, return multiple-object results
+```{r}
+jw.fin = wf %>% last_fit(split)
+jw.fin %>% collect_metrics()
+jw.fin %>% collect_predictions() %>% dplyr::select(.pred, price) %>% 
+  mutate(
+    .pred = 10^ .pred,
+    price = 10^ price
+    ) %>% 
+  yardstick::metric_set(rmse, mae, mape, rsq)(estimate = .pred, truth = price)
+```
+
+```{r}
+library(iml)
+```
+

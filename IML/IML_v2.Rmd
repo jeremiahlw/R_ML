@@ -1,0 +1,396 @@
+---
+title: "Interpretable Machine Learning"
+subtitle: "Learning Various Model Agnostic IML Techniques"
+author: 'Jeremiah Wang'
+date: "December 2020"
+output:
+  html_document:
+    theme: simplex
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 3
+    df_print: paged
+---
+
+```{r include=FALSE}
+```
+
+
+
+```{r include=FALSE}
+options(scipen = 5, digits = 2)
+
+library(funModeling);library(janitor);library(naniar);library(skimr)
+library(lubridate);library(scales);library(visdat)
+
+library(vip);library(iml)
+
+library(tidymodels);library(tidyverse)
+```
+### get data
+```{r}
+#https://github.com/rfordatascience/tidytuesday/blob/master/data/2020/2020-11-03/readme.md
+
+#ikea = read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-11-03/ikea.csv")
+a = readRDS('ikea.rds') %>%
+  clean_names() %>% 
+  mutate(price = log10(price)) %>% #will inverse log later on for interpretability 
+  mutate(across(where(is.character),factor)) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(is.Date),
+    where(is.character),
+    where(is.factor),
+    where(is.numeric)
+  ) %>% select(
+    name,
+    category,
+    #other_colors,
+    depth,
+    height,
+    width,
+    price
+  )
+
+a %>% sample_n(5)
+```
+
+
+### check zeroes, nas, inf
+```{r}
+a %>% vis_dat()
+a %>% status() %>% arrange(-p_na)
+```
+
+### check factor levels
+```{r}
+a %>% select(category) %>% freq()
+```
+
+### 1 split data
+```{r message=FALSE}
+split = initial_split(a)
+train = split %>% training
+test = split %>% testing
+vfold = train %>% vfold_cv(v = 5)
+```
+
+### 2 create *specs* for recipe, model, workflow
+```{r}
+
+rec = a %>% recipe(price ~ . ) %>% 
+  step_bagimpute(depth, height, width)
+
+#----------------------------
+
+rf.mdl  = parsnip::rand_forest(
+  trees = 500,
+  mtry = tune(),
+  min_n = tune()
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('ranger', importance = 'permutation') #or 'permutation' for OOB error diff
+
+#----------------------------
+
+rf.wf = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(rf.mdl)
+
+```
+
+### 2.5 check if rec worked
+```{r}
+baked.train = rec %>% prep %>% bake(new_data = NULL)
+baked.train %>% head
+baked.train %>% status()
+#----------------------------
+baked.test = rec %>% prep %>% bake(new_data = test)
+baked.test %>% head
+baked.test %>% status()
+```
+### 3 execute tunegrid & finalize workflow *specs*
+```{r warning=FALSE, message=FALSE}
+
+set.seed(345)
+doParallel::registerDoParallel()
+
+rf.tg = tune_grid(
+  object = rf.wf,
+  resamples = vfold,
+  grid = 10
+)
+
+#----------------------------
+
+rf.wf = rf.wf %>%
+  finalize_workflow(
+    rf.tg %>% select_best() # finalize workflow using best hyperparameters among results of tune grid
+  )
+
+```
+
+### 4 using final workflow *specs*, fit on train, create final model
+```{r}
+rf.mdl = rf.wf %>% fit(train) %>% pull_workflow_fit()
+```
+
+
+### 5 using final workflow *specs* , fit on train, evaluate on test, create "final object"
+```{r}
+#https://tune.tidymodels.org/reference/last_fit.html
+
+rf.fin = rf.wf %>% last_fit(split)
+
+rf.fin %>% collect_metrics()
+#rf.fin$.workflow %>% pull_workflow_fit()
+
+
+# http://www.eumetrain.org/data/4/451/english/msg/ver_cont_var/uos3/uos3_ko1.htm
+# Since the errors are squared before they are averaged, the RMSE gives a relatively high weight to large errors. This means the RMSE should be more useful when large errors are particularly undesirable.
+
+rf.fin %>% collect_predictions() %>% 
+  select(.pred, price) %>%
+  #undo log transform for interpretability
+  # mutate(
+  #   .pred = 10^ .pred, 
+  #   price = 10^ price
+  #   ) %>% 
+  yardstick::metric_set(rmse, rsq, mae, mape)(
+    truth = price,
+    estimate = .pred
+    )
+
+```
+
+```{r message=FALSE}
+library(plotly)
+plotly::ggplotly(
+rf.fin %>% collect_predictions() %>% 
+  select(.pred, price) %>%
+  #undo log transform for interpretability
+  mutate(
+    .pred = 10^ .pred, 
+    price = 10^ price
+    ) %>% ggplot(
+      aes(x = .pred, y = price)
+    ) + geom_point(alpha = 0.50) +
+  geom_abline(slope = 1, linetype = 'longdash', color = 'blue') +
+  labs(
+    title = 'Furniture Prices: Predictions vs Actuals',
+    x = 'prediction prices', y = 'actual prices'
+    )
+)
+```
+
+
+# IML
+
+### 'vip' **vip** *pfi* 
+```{r}
+#https://koalaverse.github.io/vip/articles/vip.html
+
+#GUMP:
+#vip run on a rf ranger model with arg importance set to 'permutation' will return the difference in MSE  (regression) between train and OOB
+#vip run on a rf ranger model with arg importance set to 'impurity' will return the SSE of train for each variable
+
+# Trees and tree ensembles (2 ways to measure variable importance)
+# (1) use the leftover out-of-bag (OOB) data to construct validation-set errors for each tree. Then, each predictor is randomly shuffled in the OOB data and the error is computed again. The idea is that if variable x is important, then the validation error will go up when x is perturbed in the OOB data. The difference in the two errors is recorded for the OOB data then averaged across all trees in the forest.
+
+# (2) The relative importance of predictor x is the sum of the squared improvements over all internal nodes of the tree for which x was chosen as the partitioning variable
+#In ensembles, the improvement score for each predictor is averaged across all the trees in the ensemble ... is often more reliable in large ensembles
+
+
+#https://cran.r-project.org/web/packages/vip/vip.pdf #top of p19, 'ranger', bottom of p18, 'randomForest'
+
+#<randomForest / ranger> Random forests typically provide two measures of variable importance. 
+#(1) The first measure is computed from permuting out-of-bag (OOB) data: for each tree, the prediction error on the OOB portion of the data is recorded (error rate for classification and MSE for
+# regression). Then the same is done after permuting each predictor variable. The difference between the two are then averaged over all trees in the forest, and normalized by the standard
+# deviation of the differences. If the standard deviation of the differences is equal to 0 for a variable, the division is not done (but the average is almost always equal to 0 in that case).
+
+# (2) The second measure is the total decrease in node impurities from splitting on the variable averaged over all trees.
+# For classification, the node impurity is measured by the Gini index. For regression, it is measured by residual sum of squares. 
+
+vip::vip(rf.mdl, scale = TRUE)
+vip::vi(rf.mdl, scale = TRUE) #shows the diff in MSE between OOB data and each var/predictor/feature -- scaled
+
+vip::vip(rf.mdl)
+vip::vi(rf.mdl) #shows the diff in MSE between OOB data and each var/predictor/feature -- UNscaled
+```
+
+### 'iml' setup
+```{r}
+#create Predictor
+x.data = baked.train %>% dplyr::select(-price)
+y = baked.train %>% pull(price)
+
+rf.predictor = Predictor$new(
+  model = rf.mdl,
+  data = x.data,
+  y = y
+)
+```
+
+### 'iml' **pfi** *FeatureImp*
+```{r warning=FALSE}
+#Ref: https://christophm.github.io/interpretable-ml-book/feature-importance.html
+
+# Permutation feature importance measures the increase in the prediction error of the model after we permuted the feature's values, which breaks the relationship between the feature and the true outcome.
+
+# A feature is "important" if SHUFFLING its values increases the model error, because in this case the model relied on the feature for the prediction.
+
+# A feature is "unimportant" if SHUFFLING its values leaves the model error unchanged, because in this case the model ignored the feature for the prediction.
+
+# The importance measure automatically takes into account all interactions with other features. By permuting the feature you also destroy the interaction effects with other features. This means that the permutation feature importance takes into account both the main feature effect and the interaction effects on model performance. This is also a disadvantage because the importance of the interaction between two features is included in the importance measurements of both features.
+
+#When the permutation is repeated, the results might vary greatly. Repeating the permutation and averaging the importance measures over repetitions stabilizes the measure, but increases the time of computation.
+
+#compare = 'ratio' is another choice, see ?FeatureImp
+rf.pfi = FeatureImp$new(rf.predictor, loss = 'mae', n.repetitions = 5, compare = 'difference')
+rf.pfi %>% plot
+```
+
+### 'iml' **ale** *FeatureEffects*
+```{r}
+#Ref: https://christophm.github.io/interpretable-ml-book/ale.html
+#ALE plots show how features influence the prediction of a machine learning model on average
+
+#The ALE value can be interpreted as the main effect of the feature at a certain value compared to the average prediction of the data.  For example, an ALE estimate of -2 at  
+#feature = 3 means that when the feature has value 3, then the prediction is lower by 2 compared to the average prediction.
+
+#they give estimates that respect feature correlations
+
+#M-Plots avoid averaging predictions of unlikely data instances, but they mix the effect of a feature with the effects of all correlated features. ALE plots solve this problem by calculating -- also based on the conditional distribution of the features -- differences in predictions instead of averages. 
+
+#check out FIGURE 5.12 for a good visual understanding
+
+#"Let me show you how the model predictions change in a small "window" of the feature around v for data instances in that window."
+
+rf.ale = FeatureEffect$new(rf.predictor, feature = 'width')
+rf.ale %>% plot
+
+#examine another feature
+rf.ale$set.feature('height')
+rf.ale %>% plot
+
+#examine another feature
+# rf.ale$set.feature('depth')
+# rf.ale %>% plot
+```
+### 'iml' **Shapley** *Fair Payoff Distribution*
+```{r}
+#Ref: https://christophm.github.io/interpretable-ml-book/shapley.html
+
+#tells us how to fairly distribute the "payout" (the prediction) among the features.
+
+# How much has each feature value contributed to the prediction compared to the average prediction?
+
+#The Shapley value is the average of all the marginal contributions to all possible coalitions. 
+
+#The value of the j-th feature contributed  'ϕ (phi)' to the prediction of this particular instance compared to the average prediction for the dataset.
+
+#Be careful to interpret the Shapley value correctly: The Shapley value is the average contribution of a feature value to the prediction in different coalitions. The Shapley value is NOT the difference in prediction when we would remove the feature from the model.
+
+#The interpretation of the Shapley value is: Given the current set of feature values, the contribution of a feature value to the difference between the actual prediction and the mean prediction is the estimated Shapley value.
+
+rf.shapley = Shapley$new(rf.predictor, x.data[3,])
+rf.shapley %>% plot
+rf.shapley$results
+#----------------------------
+rf.shapley$explain(x.data[5,])
+rf.shapley %>% plot
+rf.shapley$results
+```
+
+### 'iml' **lime** *Local Surrogate Model*
+```{r}
+#https://christophm.github.io/interpretable-ml-book/lime.html
+
+
+# #Select your instance of interest for which you want to have an explanation of its black box prediction.
+# Perturb your dataset and get the black box predictions for these new points.
+# Weight the new samples according to their proximity to the instance of interest.
+# Train a weighted, interpretable model on the dataset with the variations.
+# Explain the prediction by interpreting the local model.
+
+#see FIG 5.33
+
+# Defining a meaningful neighborhood around a point is difficult. 
+
+#check out obvs with width between 95 and 105 (based this filter off of the ALE above where there was high density in the rug plot)
+
+#CAUTION: The correct definition of the neighborhood is a very big, unsolved problem when using LIME with tabular data. In my opinion it is the biggest problem with LIME and the reason why I would recommend to use LIME only with great care. For each application you have to try different kernel settings and see for yourself if the explanations make sense. Unfortunately, this is the best advice I can give to find good kernel widths.
+
+#CAUTION: Another really big problem is the instability of the explanations. In an article 38 the authors showed that the explanations of two very close points varied greatly in a simulated setting. Also, in my experience, if you repeat the sampling process, then the explanations that come out can be different. 
+
+baked.train %>% dplyr::mutate(rn = row_number()) %>% filter(between(width, 95, 105)) %>% relocate(rn) #
+baked.train[66,] #Let's check out the 'RAMSTA' product
+rf.lime = LocalModel$new(rf.predictor, x.interest = baked.train[49,])
+rf.lime %>% plot
+```
+
+
+### 'lime' **lime / explain** *Local Surrogate Model*
+```{r message=FALSE}
+#Ref: https://cran.r-project.org/web/packages/lime/vignettes/Understanding_lime.html
+#Ref: http://127.0.0.1:31170/library/lime/html/lime.html
+```
+
+```{r message=FALSE, fig.width=9}
+library(lime)
+
+explainer = lime(
+  x = baked.train,
+  model = rf.mdl,
+  bin_continuous = TRUE,
+  #use_density = TRUE,
+  quantile_bins = FALSE,
+  n_bins = 10
+)
+
+#check out predictions using the more complex model, in this case a random forest (not that 'complicated' .... but, the local surrogate models below are 'simpler')
+#----------------------------
+baked.test[1:3,]
+rf.mdl %>% predict(baked.test[1:3,])
+#----------------------------
+
+(explanation.ridge = lime::explain(
+  x = baked.test[1:3,],
+  explainer = explainer, #lime specs
+  n_features = 4, #how many features do you want to use to explain the predictions using local surrogate model?
+  feature_select = 'highest_weights' #what kind of local surrogate model do you want to use?
+) %>% arrange(case, -feature_weight))
+
+plot_features(explanation.ridge, ncol = 1)
+
+#----------------------------
+
+(explanation.lasso = lime::explain(
+  x = baked.test[1:3,],
+  explainer = explainer, #lime specs
+  n_features = 4, #how many features do you want to use to explain the predictions using local surrogate model?
+  feature_select = 'lasso_path' #what kind of local surrogate model do you want to use?
+) %>% arrange(case, -feature_weight))
+
+plot_features(explanation.lasso, ncol = 1)
+```
+
+```{r}
+beepr::beep(5)
+```
+
+```{r}
+
+```
+
+#GOMI
+
+```{r}
+# https://christophm.github.io/interpretable-ml-book/anchors.html
+# xgboost shap
+```
+

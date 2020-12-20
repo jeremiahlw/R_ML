@@ -1,0 +1,331 @@
+---
+title: "XXX"
+author: 'Jeremiah Wang'
+date: 'January 2021'
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+    toc_depth: 2
+    df_print: paged
+---
+ 
+```{r include=FALSE}
+#https://datatables.net/reference/option/
+options(DT.options = list(scrollX = TRUE, pagin=TRUE, fixedHeader = TRUE, searchHighlight = TRUE))
+options(scipen = 5, digits = 2)
+
+library(xgboost);library(SHAPforxgboost)
+library(beepr);library(tidyverse);library(tidymodels)
+library(plotly)
+```
+
+## 0) data dic
+```{r}
+#check out this Kaggle: https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data
+```
+
+## 1) split data
+```{r message=FALSE}
+a = read_csv('house_prices.csv') %>% 
+  janitor::clean_names() %>% 
+  mutate_if(is.character, factor) %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  select(
+    where(lubridate::is.Date),
+    where(is.factor),
+    where(is.numeric)
+  ) %>% slice_sample(prop = 0.333) #limit data for speed
+split = a %>% initial_split(strata = sale_price)
+train = split %>% training
+test = split %>% testing
+vfold = train %>% vfold_cv(v = 5) #five folds for speed
+```
+
+### check miss, inf, zeroes
+```{r}
+a %>% visdat::vis_dat()
+a %>% visdat::vis_miss()
+a %>% funModeling::status() %>% arrange(-p_na)
+#---------------------------------------------------
+# a few cols have 80%+ missing values; imo not worth imputing, so I will discard those cols
+a = a %>% select(-c(pool_qc, misc_feature, alley, fence))
+```
+
+### viz distribution of outcome/y
+```{r}
+a %>% ggplot(aes(sale_price)) + geom_histogram()
+a %>% ggplot(aes(sale_price)) + geom_histogram() + scale_x_log10() # def better to log transform outcome/y 'sale_price'
+```
+
+## 2) create specs for rec, model, workflow
+```{r}
+#---------------------------------------------------rec
+rec = train %>% recipe(sale_price ~ .) %>% 
+  step_log(sale_price, base = 10) %>% 
+  step_unknown(all_nominal(), - all_outcomes()) %>% 
+  step_bagimpute(all_numeric(), -all_outcomes()) %>% 
+  step_zv(all_numeric(), -all_outcomes()) %>% 
+  step_nzv(all_numeric(), -all_outcomes()) %>% 
+  step_corr(all_numeric(), -all_outcomes()) %>% 
+  #----------------------------
+  step_normalize(all_numeric(), - all_outcomes()) %>% 
+  #step_pca(all_numeric(), num_comp = 3, - all_outcomes()) %>% 
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = TRUE)
+
+rec %>% tidy
+rec %>% prep
+
+#check rec is working properly
+baked.train = rec %>% prep %>% bake(new_data = NULL)
+#baked.train %>% funModeling::status()
+baked.train %>% head
+#----------------------------
+baked.test = rec %>% prep %>% bake(new_data = test)
+#baked.test %>% funModeling::status()
+baked.test %>% head
+
+#---------------------------------------------------.mdl
+
+#a %>% usemodels::use_xgboost(sale_price ~ .)
+#Ref:https://parsnip.tidymodels.org/reference/boost_tree.html
+
+mdl = parsnip::boost_tree(
+  trees = tune(),
+  min_n = tune(),
+  #mtry = tune(),
+  tree_depth = tune(),
+  #---gbm hps
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  sample_size = tune()
+) %>% 
+  set_mode('regression') %>% 
+  set_engine('xgboost')
+
+#learn_rate:
+#Ref: https://bradleyboehmke.github.io/HOML/gbm.html#basic-gbm
+
+# This hyperparameter is also called SHRINKAGE. Generally, the SMALLER this value, the more ACCURATE the model can be but also will REQUIRE MORE TREES in the sequence.
+
+# Determines the contribution of each tree on the final outcome and CONTROLS HOW QUICKLY the algorithm proceeds down the gradient descent (learns); see Figure 12.3. Values range from 0–1 with TYPICAL VALUES BETWEEN 0.001–0.3.
+
+# SMALLER values make the model robust to the specific characteristics of each individual tree, thus allowing it to GENERALIZE well. Smaller values also make it easier to stop prior to overfitting; however, they increase the risk of not reaching the optimum with a fixed number of trees and are more computationally demanding.
+
+#---------------------------------------------------wf
+wf = workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(mdl)
+
+beep(5)
+```
+
+## 3) execute tunegrid, finalize workflow
+```{r}
+set.seed(345)
+doParallel::registerDoParallel()
+
+tg = tune_grid(
+  object = wf,
+  resamples = vfold,
+  grid = 5
+)
+#----------------------------
+
+wf = wf %>% finalize_workflow(
+  parameters = tg %>% select_best
+)
+
+beepr::beep(5)
+```
+
+## 4) using wf, fit train, finalize model
+```{r}
+doParallel::registerDoParallel()
+(mdl = wf %>% fit(train) %>% pull_workflow_fit())
+beepr::beep(6)
+```
+
+## 5) using wf, fit train, eval test, return results
+```{r message=FALSE}
+doParallel::registerDoParallel()
+
+jw.fin = wf %>% last_fit(split)
+jw.fin$.metrics
+jw.fin$.workflow
+
+jw.fin %>% collect_predictions() %>% 
+  select(.pred, sale_price) %>% 
+  #if you want to see what things would like in terms of actual sales dollars (as opposed to log10-dollars)
+  # mutate(
+  #   .pred = 10^ .pred,
+  #   price = 10^ price
+  # ) %>% 
+  yardstick::metric_set(rmse, rsq, mae, mape)(estimate = .pred, truth = sale_price)
+
+plotly::ggplotly(
+jw.fin %>% collect_predictions() %>% 
+  select(.pred, sale_price) %>%
+  #if you want to see what things would like in terms of actual sales dollars (as opposed to log10-dollars)
+   # mutate(
+   #   .pred = 10^ .pred,
+   #   sale_price = 10^ sale_price
+   # ) %>%
+  ggplot(aes(x = .pred, y = sale_price)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = 'lm', linetype = 'longdash', se = FALSE) +
+  labs(
+    title = 'Test: Predicted Sale Prices vs Actuals',
+    x = 'predicted prices',
+    y = 'actual prices'
+  )
+)
+
+beepr::beep(3)
+```
+
+# IML:SHAPforxgboost
+
+### References
+```{r}
+#1: https://liuyanguu.github.io/post/2019/07/18/visualization-of-shap-for-xgboost/
+#2: https://christophm.github.io/interpretable-ml-book/shap.html
+```
+
+### 0) create standard xgb mdl
+```{r}
+
+X_train = baked.train %>% select(-sale_price) %>% as.matrix() #xgboost only takes a matrix for 
+y = baked.train$sale_price #aka the 'label' in xgboost() arguments
+
+# hyperparameter tuning results from xgb mdl above; will use these hps below
+(best.hps = tg %>% select_best())
+
+# Ref:https://xgboost.readthedocs.io/en/latest/parameter.html
+# Ref:https://parsnip.tidymodels.org/reference/boost_tree.html#arguments #PARAMETER TRANSLATIONS
+
+mdl.xgb = xgboost::xgboost(
+  data = X_train,
+  label = y,
+  #----------------------------
+  max_depth = best.hps$tree_depth,
+  nrounds = best.hps$trees,
+  eta = best.hps$learn_rate,
+  min_child_weight = best.hps$min_n,
+  gamma = best.hps$loss_reduction,
+  #colsample_bytree = 0.427692307692308, #mtry; this value is expressed as a ratio; you can find this value by executing ''mdl' and checking the 'call' details
+  subsample = best.hps$sample_size,
+  #----------------------------
+  nthread = parallel::detectCores() - 2,
+  verbose = FALSE,
+  objective = 'reg:squarederror'
+  )
+
+```
+
+### 1) *Local SHAP* **shap.values**
+```{r message=FALSE}
+### 0) create shap.values object (shows SHAP vals for EVERY row in train)
+shap.vals = shap.values(
+  xgb_model = mdl.xgb,
+  X_train = X_train
+)
+
+### 1> check out aggregate mean shap scores for top 10 ftrs
+tibble(
+  features = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(10) %>% names,
+  SHAP = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(10)
+)
+
+### 2> visualize 1st observation's ftrs vs their respective SHAP vals
+shap.vals$shap_score %>% dplyr::slice(1) %>%
+  pivot_longer(everything()) %>%
+  filter(value != 0) %>%  #remove features with a 0 SHAP val
+  mutate(name = fct_reorder(name, value)) %>% 
+  plotly::plot_ly(
+    x = ~value,
+    y = ~name,
+    color = ~if_else(value < 0, I('darkred'), I('darkgreen'))
+  ) %>% layout(
+    title = 'Observation 1: Shap Values of Each Feature',
+    xaxis = list(title = paste0(
+      'Cumulative Total SHAP Values: ',
+      round(shap.vals$shap_score %>% dplyr::slice(1) %>% rowSums(), 2)
+      )),
+    yaxis = list(title = '')
+  )
+
+### 3> 1st observation's features vals
+baked.train[1,]
+```
+
+### 2) *Global SHAP* for **shap.plot.summary.wrap1**
+```{r out.width=750}
+#https://www.rdocumentation.org/packages/SHAPforxgboost/versions/0.0.4/topics/shap.plot.summary.wrap1
+ggplotly(
+  shap.plot.summary.wrap1(
+    mdl.xgb,
+    X_train,
+    top_n = 10
+    ##dilute = 10 #to use only 1/10th of data
+  ) + labs(
+    title = 'Global SHAP feature importance'
+  ))
+```
+
+## 2.5) create 'long' shap.values object **shap.prep**
+```{r}
+# To prepare the long-format data:
+shap.long = shap.prep(xgb_model = mdl.xgb, X_train = X_train)
+```
+
+### 3) *dependence plot* **shap.plot.dependence**
+```{r fig.width=9}
+fig.list = lapply(names(shap.vals$mean_shap_score)[1:4], 
+                   shap.plot.dependence, data_long = shap.long)
+
+gridExtra::grid.arrange(grobs = fig.list, ncol = 2)
+
+```
+
+### 4) *interaction plot* **shap.plot.dependence & shap.interaction**
+```{r}
+#NOTE: takes time to run!
+
+#SHAP interaction values can be interpreted as the difference between the SHAP values for feature i when feature j is present and the SHAP values for feature i when feature j is absent.
+
+shap.interaction = shap.prep.interaction(
+  xgb_mod = mdl.xgb,
+  X_train = X_train
+  )
+
+shap.plot.dependence(data_long = shap.long, data_int = shap.interaction, x = 'total_bsmt_sf', y = 'x1st_flr_sf')
+```
+
+### 5) *force plot* **shap.prep.stack.data**
+```{r fig.width=9}
+force.plot.data = shap.prep.stack.data(
+  shap_contrib = shap.vals$shap_score,
+  top_n = 3,
+  n_groups = 3)
+
+shap.plot.force_plot(force.plot.data)
+
+shap.plot.force_plot_bygroup(force.plot.data)
+```
+
+
+```{r}
+
+```
+
+
+# dependence plot
+# understand interaction plot
+
+
