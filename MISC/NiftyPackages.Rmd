@@ -1,0 +1,118 @@
+[NiftyPackages](https://towardsdatascience.com/a-comprehensive-list-of-handy-r-packages-e85dad294b3d)
+
+```{r include=FALSE}
+library(tidyverse)
+library(plotly)
+```
+
+```{r}
+a = diamonds %>% slice_sample(prop = 0.05)
+a
+```
+```{r}
+library(ggrepel)
+library(seplyr)
+a %>% group_summarise(groupingVars = c('color','cut'), mean.price = mean(price, na.rm = TRUE)) %>% 
+  ggplot(aes(mean.price, color, label = scales::comma(round(mean.price,0)))) +
+  geom_point() +
+  geom_text_repel()
+
+```
+
+```{r}
+#https://r-forge.r-project.org/scm/viewvc.php/*checkout*/pkg/vignettes/coefplot2.pdf?root=coefplot2
+library(coefplot)
+lm = lm(price ~ . ,data = a)
+
+#ggplotly(
+coefplot(lm, col.pts = "red") + ggtitle('Coeficient Plot')
+#)
+```
+
+```{r}
+library(dotwhisker)
+#https://cran.r-project.org/web/packages/dotwhisker/vignettes/dotwhisker-vignette.html
+#By default, the whiskers span the 95% confidence interval. 
+#the output of dwplot is a ggplot object. 
+#ggplotly(
+dwplot(lm, conf.level = .50) + ggtitle('Coeficient Plot')
+#)
+```
+```{r}
+library(gghighlight)
+```
+
+```{r fig.width=9}
+#https://miro.medium.com/max/600/1*LRstTjgZ-xJCBUp6V7o26A.jpeg
+#https://cran.r-project.org/web/packages/lvplot/lvplot.pdf
+
+#The letter-value box plot addresses both these shortcomings: it conveys more detailed information
+# in the tails using letter values, only out to the depths where the letter values are reliable estimates of
+# their corresponding quantiles (corresponding to tail areas of roughly 2
+# −i
+# ); “outliers” are defined as
+# a function of the most extreme letter value shown. All aspects shown on the letter-value boxplot are
+# actual observations, thus remaining faithful to the principles that governed Tukey’s original boxplot
+
+library(lvplot)
+library(ggplot2)
+library(hbrtheme)
+
+p = a %>% ggplot(aes(cut, price))
+p + geom_boxplot() + geom_jitter(alpha = 0.1, width = 0.2)
+
+p + geom_lv(
+  aes(fill=..LV..),
+  varwidth = TRUE, #a %>% count(cut)
+  outlier.colour = "red",
+  outlier.shape = 1
+  ) +
+  geom_jitter(alpha = 0.1, width = 0.2) +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme
+
+#p + geom_lv(fill = "grey80", colour = "black")
+
+```
+```{r}
+#https://github.com/alastairrushworth/inspectdf#correlation
+library(inspectdf)
+
+a %>% inspect_cor #super useful
+a %>% inspect_imb
+a %>% inspect_num #much cleaner than skimr
+a %>% inspect_cat #much cleaner than skimr
+a %>% inspect_cat %>% .$levels
+```
+
+```{r}
+library(effects)
+#https://cran.r-project.org/web/packages/effects/vignettes/predictor-effects-gallery.pdf
+```
+
+```{r fig.width=9}
+library(WVPlots)
+ggplotly(
+a %>% PlotDistDensityNormal('carat', title = 'Awesome Density Chart')
+)
+
+a %>% ScatterHist('carat', 'price', smoothmethod = 'lm', title = 'Awesome Density Chart')
+
+
+```
+
+
+```{r}
+#https://cran.r-project.org/web/packages/ggpointdensity/ggpointdensity.pdf
+library(ggpointdensity)
+
+a %>% ggplot(aes(carat, price)) + geom_pointdensity(adjust = .1)
+a %>% ggplot(aes(carat, price)) + geom_pointdensity(adjust = .5)
+a %>% ggplot(aes(carat, price)) + geom_pointdensity(adjust = .5) + facet_wrap(~color) + scale_color_viridis_c()
+```
+
+```{r}
+#https://github.com/hrbrmstr/ggchicklet
+library(geomchicklet)
+```
+

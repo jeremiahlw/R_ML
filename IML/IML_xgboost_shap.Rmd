@@ -1,5 +1,5 @@
 ---
-title: "XXX"
+title: "Interpretable Machine Learning: SHAP"
 author: 'Jeremiah Wang'
 date: 'January 2021'
 output:
@@ -11,7 +11,6 @@ output:
     toc_float:
       collapsed: no
       smooth_scroll: no
-    toc_depth: 3
     df_print: paged
 ---
  
@@ -50,7 +49,7 @@ vfold = train %>% vfold_cv(v = 5) #five folds for speed
 ### check miss, inf, zeroes
 ```{r}
 a %>% visdat::vis_dat()
-a %>% visdat::vis_miss()
+a %>% visdat::vis_miss(cluster = TRUE)
 a %>% funModeling::status() %>% arrange(-p_na)
 #---------------------------------------------------
 # a few cols have 80%+ missing values; imo not worth imputing, so I will discard those cols
@@ -236,13 +235,15 @@ shap.vals = shap.values(
   X_train = X_train
 )
 
-### 1> check out aggregate mean shap scores for top 10 ftrs
+### 1> viz aggregate mean shap scores for top 10 ftrs
 tibble(
   features = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(10) %>% names,
   SHAP = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(10)
-)
+) %>% mutate(features = fct_reorder(features, SHAP)) %>%
+  plot_ly(x= ~SHAP, y = ~features) %>% 
+  layout(title = 'Mean SHAP Values of Top 10 Features')
 
-### 2> visualize 1st observation's ftrs vs their respective SHAP vals
+### 2> viz 1st observation's ftrs vs their respective SHAP vals
 shap.vals$shap_score %>% dplyr::slice(1) %>%
   pivot_longer(everything()) %>%
   filter(value != 0) %>%  #remove features with a 0 SHAP val
@@ -264,7 +265,7 @@ shap.vals$shap_score %>% dplyr::slice(1) %>%
 baked.train[1,]
 ```
 
-### 2) *Global SHAP* for **shap.plot.summary.wrap1**
+### 2) *Global SHAP* **shap.plot.summary.wrap1**
 ```{r out.width=750}
 #https://www.rdocumentation.org/packages/SHAPforxgboost/versions/0.0.4/topics/shap.plot.summary.wrap1
 ggplotly(
@@ -278,20 +279,32 @@ ggplotly(
   ))
 ```
 
-## 2.5) create 'long' shap.values object **shap.prep**
+### 2.5) create 'long' shap.values object **shap.prep**
 ```{r}
 # To prepare the long-format data:
 shap.long = shap.prep(xgb_model = mdl.xgb, X_train = X_train)
 ```
 
 ### 3) *dependence plot* **shap.plot.dependence**
-```{r fig.width=9}
+```{r fig.width=9, message=FALSE}
 fig.list = lapply(names(shap.vals$mean_shap_score)[1:4], 
                    shap.plot.dependence, data_long = shap.long)
 
 gridExtra::grid.arrange(grobs = fig.list, ncol = 2)
 
 ```
+
+```{r fig.width=9}
+#xgboost's built in SHAP plots
+xgb.plot.shap(
+  data = X_train,
+  model = mdl.xgb,
+  top_n = 4,
+  n_col = 2,
+  col = 'blue4'
+  )
+```
+
 
 ### 4) *interaction plot* **shap.plot.dependence & shap.interaction**
 ```{r}
@@ -304,7 +317,7 @@ shap.interaction = shap.prep.interaction(
   X_train = X_train
   )
 
-shap.plot.dependence(data_long = shap.long, data_int = shap.interaction, x = 'total_bsmt_sf', y = 'x1st_flr_sf')
+shap.plot.dependence(data_long = shap.long, data_int = shap.interaction, x = 'gr_liv_area', y = 'year_built')
 ```
 
 ### 5) *force plot* **shap.prep.stack.data**
@@ -323,9 +336,4 @@ shap.plot.force_plot_bygroup(force.plot.data)
 ```{r}
 
 ```
-
-
-# dependence plot
-# understand interaction plot
-
 

@@ -1,0 +1,52 @@
+---
+title: 'Predicting Global Potato Yields'
+subtitle: 'Learning XGBOOST SHAP'
+output: html_notebook
+---
+
+```{r include=FALSE}
+library(beepr);library(DataExplorer);library(data.table);library(dlookr);
+library(extrafont);library(formattable);library(funModeling);library(GGally);
+library(here);library(janitor);library(lubridate);library(naniar);
+library(plotly);library(RColorBrewer);
+library(readxl);library(skimr);library(tidyverse);library(scales);
+library(visdat)
+
+a = readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-01/key_crop_yields.csv') %>% 
+  clean_names() %>% 
+  select(sort(tidyselect::peek_vars())) %>% 
+  relocate(code, entity, year)
+  
+#https://dplyr.tidyverse.org/reference/across.html
+
+#summarise global yields of crops per/by year
+a = a %>% filter(entity == 'Japan') %>% 
+  group_by(year) %>% 
+  summarise(across(
+    ends_with('per_hectare'),
+    ~sum(.x, na.rm = TRUE)
+    ), .groups = 'drop')
+
+a = a %>% pivot_longer(bananas_tonnes_per_hectare:wheat_tonnes_per_hectare) %>% rename('crop' = 'name')
+```
+
+### zeroes, nas, inf
+```{r}
+a %>% status
+a %>% vis_dat()
+```
+```{r}
+jpal = colorRampPalette(brewer.pal(8,'Dark2'))(11)
+
+a %>% plot_ly(x = ~year, y = ~value, color = ~crop, colors = jpal) %>% 
+  add_lines() %>%
+  hide_legend() %>% 
+  layout(title = 'Global Crop Yields in tonnes_per_hectare')
+```
+
+
+```{r include=FALSE}
+library(tidymodels);library(iml);library(xgboost);library(SHAPforxgboost)
+```
+
+
