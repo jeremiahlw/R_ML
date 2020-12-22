@@ -1,6 +1,6 @@
 ---
 title: "Wind Turbines"
-title: "Predicting Power using XGBoost & Interpreting using SHAP"
+subtitle: "Predicting Power using XGBoost & Interpreting Model using SHAP"
 author: 'Jeremiah Wang'
 date: 'January 2020'
 output:
@@ -216,23 +216,11 @@ mdl.xgb = xgboost(
 )
 ```
 
-### 1) *Local SHAP* **shap.values**
+### 1) *Individual Observation Top/Bottom SHAP* **shap.values**
 ```{r}
 shap.vals = shap.values(
   mdl.xgb, X_train
 )
-
-#----------------------------top 10 Features avg SHAP values
-tibble(
-features = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(10) %>% names,
-SHAP = shap.vales$mean_shap_score %>% sort(decreasing = TRUE) %>% head(10)
-) %>% mutate(features = fct_reorder(features, SHAP)) %>% 
-  plot_ly(x = ~SHAP, y = ~features) %>% 
-  layout(
-    title = 'Average SHAP of Top 10 Important Features',
-    xaxis = list(title = ''),
-    yaxis = list(title = '')
-    )
 
 #----------------------------individual observation's SHAP values 
 observation = 88
@@ -249,12 +237,130 @@ shap.vals$shap_score %>% dplyr::slice(observation) %>%
     ) %>% 
   plot_ly(x = ~SHAP, y = ~feature, color = ~if_else(SHAP < 0, I('darkred'), I('darkgreen'))) %>% 
   layout(
-    title = paste0('SHAP Values of Important Features for Observation ', observation),
+    title = paste0('Local: Significant SHAP Values for Observation ', observation),
     xaxis = list(title = paste0(
       'Cumulative Total SHAP Values: ',
       round(shap.vals$shap_score %>% dplyr::slice(observation) %>% rowSums(), 2)
       )),
     yaxis = list(title = ''))
 
+```
+
+### 2) *Aggregate Model Top N SHAP* **shap.values**
+```{r}
+#----------------------------top 10 Features avg SHAP values
+
+n = 10
+
+tibble(
+features = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(n) %>% names,
+SHAP = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(n)
+) %>% mutate(features = fct_reorder(features, SHAP)) %>% 
+  plot_ly(x = ~SHAP, y = ~features) %>% 
+  layout(
+    title = paste0('Global: Average SHAP for Top ', n ,' Features'),
+    xaxis = list(title = ''),
+    yaxis = list(title = '')
+    )
+```
+
+### 3) *Aggregate Model Top N SHAP* **shap.plot.summary.wrap1**
+```{r out.width=750}
+#https://www.rdocumentation.org/packages/SHAPforxgboost/versions/0.0.4/topics/shap.plot.summary.wrap1
+
+n = 10
+
+ggplotly(
+shap.plot.summary.wrap1(
+  mdl.xgb, X_train,
+  top_n = n
+  ) + labs(
+    title = paste0('Global: Distribution of SHAP for Top ', n ,' Features')
+  )
+)
+```
+
+### checking if results make sense
+```{r out.width= 800, out.height=600}
+ggplotly(
+baked.train %>%
+  mutate(manufacturer_GE = if_else(manufacturer_GE == 1, 'GE','Other')) %>% 
+  ggplot(aes(manufacturer_GE, turbine_rated_capacity_k_w, group = manufacturer_GE)) +
+  geom_boxplot(aes(fill = manufacturer_GE), alpha = 0.50) +
+  labs(
+    title = 'Distribution: GE turbine capacity (KW) vs Other Manufacturers',
+    y = '', x = ''
+  ) + scale_fill_manual(values = c('dodgerblue3','grey60')) +
+  theme(legend.position = 'none')
+)
+
+#----------------------------
+
+ggplotly(
+baked.train %>%
+  mutate(manufacturer_Enercon = if_else(manufacturer_Enercon == 1, 'Enercon','Other')) %>% 
+  ggplot(aes(manufacturer_Enercon, turbine_rated_capacity_k_w, group = manufacturer_Enercon)) +
+  geom_boxplot(aes(fill = manufacturer_Enercon), alpha = 0.50) +
+  labs(
+    title = 'Distribution: Enercon turbine capacity (KW) vs Other Manufacturers',
+    y = '', x = ''
+  ) + scale_fill_manual(values = c('seagreen4','grey60')) +
+  theme(legend.position = 'none')
+)
+```
+
+### 4) *Dependence Plots* **shap.prep & shap.plot.dependence**
+```{r message=FALSE}
+
+n = 5
+
+top.n.features = shap.vals$mean_shap_score %>% sort(decreasing = TRUE) %>% head(n) %>% names
+
+X_train.long = shap.prep(xgb_model = mdl.xgb, X_train = X_train)
+
+map(
+  .x = top.n.features,
+  ~shap.plot.dependence(
+    data_long = X_train.long,
+    x = .x,
+    size0 = 1.5,
+    add_hist = TRUE
+  )
+)
+
+```
+
+
+### 5) *Interaction Plots* **shap.plot.dependence**
+```{r}
+#The SHAP interaction values take time since it calculates all the combinations.
+
+shap.plot.dependence(
+  data_long = X_train.long,
+  data_int = shap.prep.interaction(
+    xgb_model = mdl.xgb,
+    X_train = X_train
+    ),
+  x = 'rotor_diameter_m',
+  y = 'hub_height_m'
+)
+```
+
+
+### *Force Plots*
+```{r fig.width = 9}
+stack.data = shap.prep.stack.data(
+  shap_contrib = shap.vals$shap_score,
+  top_n = 3,
+  n_groups = 3
+  )
+
+shap.plot.force_plot(
+  stack.data
+  #zoom_in_location = ,
+  #y_parent_limit = c(- , +)
+)
+
+shap.plot.force_plot_bygroup(stack.data)
 ```
 
