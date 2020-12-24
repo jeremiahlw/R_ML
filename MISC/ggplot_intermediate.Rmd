@@ -1,0 +1,60 @@
+---
+title: "More GGPlotting"
+author: "Jeremiah W"
+date: "12/23/2020"
+output: html_document
+---
+
+[Ref](https://cran.r-project.org/web/packages/WVPlots/vignettes/WVPlots_examples.html)
+
+```{r include=FALSE}
+library(tidyverse)
+library(WVPlots)
+```
+
+```{r}
+a = diamonds %>% slice_sample(prop = 0.10)
+a %>% head(10)
+```
+### boxplot + jitter
+```{r}
+a %>% ggplot(aes(cut, price)) +
+  geom_point(color = 'slateblue', alpha = 0.1, position = 'jitter') +
+  geom_boxplot(outlier.color = 'darkred', alpha = 0.2) +
+  coord_flip()
+```
+### *ScatterHist*
+```{r}
+a %>% ScatterHist(
+  'carat','price','carat vs price',
+  smoothmethod = 'lm',
+  estimate_sig = TRUE,
+  minimal_labels = TRUE,
+  point_alpha = 0.1
+  )
+```
+
+
+### *ScatterHistC*
+```{r}
+a %>% mutate(
+  cut = if_else(cut %in% c('Ideal','Good','Very Good'), 'Low.End','High.End')
+) %>% ScatterHistC(
+  'carat','price','cut','',
+  annot_size = 4
+  
+  )
+```
+
+```{r}
+levels(a$cut)
+
+a %>% mutate(
+  
+)
+
+library(seplyr)
+
+a %>% group_summarise('cut', mean.price = mean(price, na.rm = TRUE)) %>% arrange(mean.price)
+```
+
